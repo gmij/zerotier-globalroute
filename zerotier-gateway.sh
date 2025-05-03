@@ -48,6 +48,10 @@ while [[ "$#" -gt 0 ]]; do
         -d|--debug) DEBUG_MODE=1 ;;
         -r|--restart) RESTART_MODE=1 ;;
         -u|--update) UPDATE_MODE=1 ;;
+        -U|--uninstall) 
+            uninstall_gateway
+            exit 0
+            ;;
         --ipv6) IPV6_ENABLED=1 ;;
         --stats) 
             prepare_dirs
@@ -58,10 +62,6 @@ while [[ "$#" -gt 0 ]]; do
             prepare_dirs
             test_gateway
             exit $?
-            ;;
-        --uninstall) 
-            uninstall_gateway
-            exit 0
             ;;
         *) handle_error "未知参数: $1" ;;
     esac
@@ -118,7 +118,7 @@ if [ -z "$ZT_INTERFACE" ]; then
         done
         echo ""
         read -p "请选择要使用的接口编号 (1-${#ZT_MULTIPLE_INTERFACES[@]}): " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#ZT_MULTIPLE_INTERFACES[@]}" ]; then
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#ZT_MULTIPLE_INTERFACES[@]}"]; then
             ZT_INTERFACE="${ZT_MULTIPLE_INTERFACES[$((choice-1))]}"
             log "INFO" "用户选择了接口: $ZT_INTERFACE"
         else
