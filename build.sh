@@ -56,7 +56,7 @@ cat > "$OUTPUT_FILE" << EOL
 
 EOL
 
-# 写入颜色定义
+# 写入颜色定义和辅助函数
 cat >> "$OUTPUT_FILE" << 'EOL'
 # 设置颜色输出
 RED='\033[0;31m'
@@ -94,11 +94,13 @@ for file in "$SCRIPT_DIR/cmd"/*.sh; do
   var_name="${filename%.sh}"
   file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
   
-  echo "cat > \"\$TMP_DIR/cmd/$filename\" << 'EOF_WRITE'" >> "$OUTPUT_FILE"
-  echo "$(decode_file \"\$$var_name\")" >> "$OUTPUT_FILE"
-  echo "EOF_WRITE" >> "$OUTPUT_FILE"
-  echo "chmod +x \"\$TMP_DIR/cmd/$filename\"" >> "$OUTPUT_FILE"
-  echo "" >> "$OUTPUT_FILE"
+  cat >> "$OUTPUT_FILE" << EOL
+cat > "\$TMP_DIR/cmd/$filename" << 'EOF_WRITE'
+\$(decode_file "\$$var_name")
+EOF_WRITE
+chmod +x "\$TMP_DIR/cmd/$filename"
+
+EOL
 done
 
 # 添加 templates 目录中的文件
@@ -108,10 +110,12 @@ for file in "$SCRIPT_DIR/templates"/*; do
   var_name="${filename//[-.]/}"
   file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
   
-  echo "cat > \"\$TMP_DIR/templates/$filename\" << 'EOF_WRITE'" >> "$OUTPUT_FILE"
-  echo "$(decode_file \"\$$var_name\")" >> "$OUTPUT_FILE"
-  echo "EOF_WRITE" >> "$OUTPUT_FILE"
-  echo "" >> "$OUTPUT_FILE"
+  cat >> "$OUTPUT_FILE" << EOL
+cat > "\$TMP_DIR/templates/$filename" << 'EOF_WRITE'
+\$(decode_file "\$$var_name")
+EOF_WRITE
+
+EOL
 done
 
 # 添加主脚本
