@@ -18,6 +18,11 @@ on:
         type: boolean
         default: false
 
+# 添加所需的权限配置
+permissions:
+  contents: write     # 允许推送到仓库和创建发布
+  discussions: write  # 如果需要在讨论中发布，则添加此权限
+
 jobs:
   build:
     runs-on: ubuntu-latest
