@@ -16,8 +16,11 @@ NC='\033[0m' # No Color
 # 脚本所在目录
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 OUTPUT_FILE="$SCRIPT_DIR/zerotier-gateway-bundle.sh"
-VERSION=$(grep -o "版本：[0-9\.]*" "$SCRIPT_DIR/zerotier-gateway.sh" | awk -F '：' '{print $2}')
+# 获取基础版本号
+BASE_VERSION=$(grep -o "版本：[0-9\.]*" "$SCRIPT_DIR/zerotier-gateway.sh" | awk -F '：' '{print $2}')
+# 添加日期生成完整版本号
 DATE=$(date +"%Y-%m-%d")
+VERSION="${BASE_VERSION} (打包于 ${DATE})"
 
 echo -e "${GREEN}开始打包 ZeroTier Gateway 脚本 (版本 $VERSION)...${NC}"
 
@@ -41,7 +44,7 @@ cat > "$OUTPUT_FILE" << EOL
 #
 # ZeroTier 高级网关配置脚本 - 打包版
 # 功能：配置 CentOS 服务器作为 ZeroTier 网络的网关，支持双向流量及 HTTPS
-# 版本：$VERSION (打包于 $DATE)
+# 版本：$VERSION
 #
 
 # ====================================================================
