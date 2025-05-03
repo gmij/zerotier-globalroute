@@ -157,10 +157,16 @@ chmod +x "\$TMP_DIR/zerotier-gateway.sh"
 # 设置安装目录
 setup_install_dirs
 
-# 修改主脚本引用路径
+# 修改主脚本引用路径，将cmd目录改为scripts目录
+sed -i "s|SCRIPT_DIR/cmd|ZT_INSTALL_DIR/scripts|g" "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
+sed -i "s|\\"\\\$SCRIPT_DIR/cmd|\\"\\\$ZT_SCRIPTS_DIR|g" "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
 sed -i "s|/etc/NetworkManager/dispatcher.d/99-ztmtu.sh|\$ZT_SCRIPTS_DIR/99-ztmtu.sh|g" "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
 sed -i "s|/usr/local/bin/zt-status|\$ZT_BIN_DIR/zt-status|g" "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
 sed -i "s|/etc/cron.daily/zt-gateway-check|\$ZT_SCRIPTS_DIR/zt-gateway-check|g" "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
+
+# 添加脚本加载路径修正
+sed -i '/^# 加载功能模块/,+5d' "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
+sed -i '/^SCRIPT_DIR=/a\\n# 加载功能模块\\nsource "\$ZT_SCRIPTS_DIR/utils.sh"\\nsource "\$ZT_SCRIPTS_DIR/detect.sh"\\nsource "\$ZT_SCRIPTS_DIR/monitor.sh"\\nsource "\$ZT_SCRIPTS_DIR/uninstall.sh"\\nsource "\$ZT_SCRIPTS_DIR/firewall.sh"' "\$TMP_DIR/zerotier-gateway.sh" 2>/dev/null || true
 
 # 复制脚本到安装目录
 echo -e "\${BLUE}复制文件到安装目录...\${NC}"
