@@ -185,23 +185,32 @@ cd "\$ZT_SCRIPT_DIR"
 "\$ZT_SCRIPT_DIR/zerotier-gateway.sh" "\$@"
 exit_code=\$?
 
-# 创建必要的软链接
+# 打包脚本创建的软链接处理
 echo ""
 echo -e "\${BLUE}正在创建系统软链接...\${NC}"
 
-# 创建状态脚本链接
-if [ -f "/usr/local/bin/zt-status" ]; then
-  create_symlink "\$ZT_SCRIPT_DIR/templates/status-script.sh.template" "/usr/local/bin/zt-status"
+# 创建脚本链接目录
+mkdir -p "\$ZT_SCRIPT_DIR/bin" 2>/dev/null || true
+
+# 创建状态脚本
+if [ -f "\$ZT_SCRIPT_DIR/templates/status-script.sh.template" ]; then
+  cp -f "\$ZT_SCRIPT_DIR/templates/status-script.sh.template" "\$ZT_SCRIPT_DIR/bin/zt-status" || echo -e "\${RED}无法创建状态脚本\${NC}"
+  chmod +x "\$ZT_SCRIPT_DIR/bin/zt-status" 2>/dev/null
+  create_symlink "\$ZT_SCRIPT_DIR/bin/zt-status" "/usr/local/bin/zt-status"
 fi
 
 # 创建网络接口监控脚本链接
-if [ -f "/etc/NetworkManager/dispatcher.d/99-ztmtu.sh" ]; then
-  create_symlink "\$ZT_SCRIPT_DIR/templates/network-monitor.sh.template" "/etc/NetworkManager/dispatcher.d/99-ztmtu.sh"
+if [ -f "\$ZT_SCRIPT_DIR/templates/network-monitor.sh.template" ]; then
+  cp -f "\$ZT_SCRIPT_DIR/templates/network-monitor.sh.template" "\$ZT_SCRIPT_DIR/scripts/99-ztmtu.sh" || echo -e "\${RED}无法创建网络监控脚本\${NC}"
+  chmod +x "\$ZT_SCRIPT_DIR/scripts/99-ztmtu.sh" 2>/dev/null
+  create_symlink "\$ZT_SCRIPT_DIR/scripts/99-ztmtu.sh" "/etc/NetworkManager/dispatcher.d/99-ztmtu.sh"
 fi
 
 # 创建定时检查脚本链接
-if [ -f "/etc/cron.daily/zt-gateway-check" ]; then
-  create_symlink "\$ZT_SCRIPT_DIR/templates/daily-check.sh.template" "/etc/cron.daily/zt-gateway-check"
+if [ -f "\$ZT_SCRIPT_DIR/templates/daily-check.sh.template" ]; then
+  cp -f "\$ZT_SCRIPT_DIR/templates/daily-check.sh.template" "\$ZT_SCRIPT_DIR/scripts/zt-gateway-check" || echo -e "\${RED}无法创建定时检查脚本\${NC}"
+  chmod +x "\$ZT_SCRIPT_DIR/scripts/zt-gateway-check" 2>/dev/null
+  create_symlink "\$ZT_SCRIPT_DIR/scripts/zt-gateway-check" "/etc/cron.daily/zt-gateway-check"
 fi
 
 # 打印安装摘要
