@@ -1,0 +1,210 @@
+#!/bin/bash
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+CONFIG_DIR="/etc/zt-gateway"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+# 加载配置
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+# 帮助函数
+show_help() {
+    echo "用法: $0 [选项]"
+    echo ""
+    echo "选项:"
+    echo "  -h, --help     显示此帮助信息"
+    echo "  -f, --full     显示完整状态信息"
+    echo "  -c, --conn     显示连接统计"
+    echo "  -t, --traffic  显示流量统计"
+    echo "  -r, --routes   显示路由表"
+    echo "  -l, --logs     显示最近日志"
+    echo "  --test         测试连通性"
+    echo ""
+}
+
+# 解析命令行参数
+FULL_INFO=0
+SHOW_CONN=0
+SHOW_TRAFFIC=0
+SHOW_ROUTES=0
+SHOW_LOGS=0
+TEST_CONN=0
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -h|--help) show_help; exit 0 ;;
+        -f|--full) FULL_INFO=1 ;;
+        -c|--conn) SHOW_CONN=1 ;;
+        -t|--traffic) SHOW_TRAFFIC=1 ;;
+        -r|--routes) SHOW_ROUTES=1 ;;
+        -l|--logs) SHOW_LOGS=1 ;;
+        --test) TEST_CONN=1 ;;
+        *) echo "未知选项: $1"; show_help; exit 1 ;;
+    esac
+    shift
+done
+
+# 如果没有指定选项，则显示基本信息
+if [ $FULL_INFO -eq 0 ] && [ $SHOW_CONN -eq 0 ] && [ $SHOW_TRAFFIC -eq 0 ] && [ $SHOW_ROUTES -eq 0 ] && [ $SHOW_LOGS -eq 0 ] && [ $TEST_CONN -eq 0 ]; then
+    FULL_INFO=1
+fi
+
+# 显示基本信息
+if [ $FULL_INFO -eq 1 ]; then
+    echo -e "${GREEN}===== ZeroTier 网关状态 =====${NC}"
+
+    # 显示配置信息
+    echo -e "${YELLOW}配置信息:${NC}"
+    if [ -f "$CONFIG_FILE" ]; then
+        echo "ZeroTier 接口: $ZT_INTERFACE"
+        echo "外网接口: $WAN_INTERFACE"
+        echo "ZeroTier 网络: $ZT_NETWORK"
+        echo "MTU 设置: $ZT_MTU"
+        if [ -n "$ZT_NETWORK_ID" ]; then
+            echo "网络 ID: $ZT_NETWORK_ID"
+        fi
+        echo "最后更新: $LAST_UPDATE"
+    else
+        echo "未找到配置文件"
+    fi
+    echo ""
+fi
+
+# 检测所有 ZeroTier 接口
+if [ $FULL_INFO -eq 1 ]; then
+    echo -e "${YELLOW}检测到的所有 ZeroTier 接口:${NC}"
+    ZT_INTERFACES=$(ip link show | grep -o 'zt[a-zA-Z0-9]*')
+    for zt in $ZT_INTERFACES; do
+        zt_ip=$(ip -o -f inet addr show $zt 2>/dev/null | awk '{print $4}')
+        if [ "$zt" = "$ZT_INTERFACE" ]; then
+            echo -e " - $zt: ${zt_ip:-未分配 IP} ${GREEN}(当前活动接口)${NC}"
+        else
+            echo -e " - $zt: ${zt_ip:-未分配 IP}"
+        fi
+    done
+    echo ""
+
+    echo -e "${YELLOW}IP 转发状态:${NC}"
+    ip_forward=$(sysctl -n net.ipv4.ip_forward)
+    if [ "$ip_forward" = "1" ]; then
+        echo -e "IP 转发: ${GREEN}启用${NC}"
+    else
+        echo -e "IP 转发: ${RED}禁用${NC}"
+    fi
+    echo ""
+fi
+
+# 显示路由信息
+if [ $FULL_INFO -eq 1 ] || [ $SHOW_ROUTES -eq 1 ]; then
+    echo -e "${YELLOW}默认网关:${NC}"
+    ip route | grep default
+    echo ""
+
+    echo -e "${YELLOW}路由表:${NC}"
+    ip route
+    echo ""
+fi
+
+# 显示连接跟踪信息
+if [ $FULL_INFO -eq 1 ] || [ $SHOW_CONN -eq 1 ]; then
+    echo -e "${YELLOW}连接跟踪统计:${NC}"
+    if [ -f /proc/net/nf_conntrack ]; then
+        active_conn=$(cat /proc/net/nf_conntrack | wc -l)
+        max_conn=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null || echo '未知')
+        conn_percent=$(awk "BEGIN {printf \"%.1f%%\", 100*$active_conn/$max_conn}")
+        echo "活动连接数: $active_conn"
+        echo "连接跟踪限制: $max_conn"
+        echo "连接跟踪使用率: $conn_percent"
+        echo ""
+        echo "连接状态分布:"
+        echo "  已建立: $(grep ESTABLISHED /proc/net/nf_conntrack | wc -l)"
+        echo "  超时: $(grep UNREPLIED /proc/net/nf_conntrack | wc -l)"
+        echo "  正在确认: $(grep ASSURED /proc/net/nf_conntrack | wc -l)"
+    else
+        echo "nf_conntrack 模块未加载"
+    fi
+    echo ""
+fi
+
+# 显示流量统计
+if [ $FULL_INFO -eq 1 ] || [ $SHOW_TRAFFIC -eq 1 ]; then
+    if [ -n "$ZT_INTERFACE" ]; then
+        echo -e "${YELLOW}流量统计 ($ZT_INTERFACE):${NC}"
+        rx_bytes=$(cat /sys/class/net/$ZT_INTERFACE/statistics/rx_bytes 2>/dev/null || echo 0)
+        tx_bytes=$(cat /sys/class/net/$ZT_INTERFACE/statistics/tx_bytes 2>/dev/null || echo 0)
+        rx_packets=$(cat /sys/class/net/$ZT_INTERFACE/statistics/rx_packets 2>/dev/null || echo 0)
+        tx_packets=$(cat /sys/class/net/$ZT_INTERFACE/statistics/tx_packets 2>/dev/null || echo 0)
+        
+        # 转换为可读形式
+        rx_mb=$(echo "scale=2; $rx_bytes/1048576" | bc)
+        tx_mb=$(echo "scale=2; $tx_bytes/1048576" | bc)
+        
+        echo "接收: $rx_mb MB ($rx_packets 数据包)"
+        echo "发送: $tx_mb MB ($tx_packets 数据包)"
+    fi
+    
+    echo -e "${YELLOW}防火墙流量:${NC}"
+    echo "入站:"
+    iptables -L INPUT -v -n | head -n 2
+    echo "转发:"
+    iptables -L FORWARD -v -n | head -n 2
+    echo ""
+fi
+
+# 显示 ZeroTier 信息
+if [ $FULL_INFO -eq 1 ]; then
+    echo -e "${YELLOW}ZeroTier 信息:${NC}"
+    if command -v zerotier-cli >/dev/null 2>&1; then
+        zerotier-cli info
+        echo ""
+        echo -e "${YELLOW}ZeroTier 网络:${NC}"
+        zerotier-cli listnetworks
+    else
+        echo "zerotier-cli 未安装"
+    fi
+    echo ""
+fi
+
+# 显示服务状态
+if [ $FULL_INFO -eq 1 ]; then
+    echo -e "${YELLOW}服务状态:${NC}"
+    echo "ZeroTier 服务:"
+    systemctl is-active --quiet zerotier-one && echo -e " - ZeroTier: ${GREEN}运行中${NC}" || echo -e " - ZeroTier: ${RED}未运行${NC}"
+    echo "iptables 服务:"
+    systemctl is-active --quiet iptables && echo -e " - iptables: ${GREEN}运行中${NC}" || echo -e " - iptables: ${RED}未运行${NC}"
+    echo ""
+fi
+
+# 测试连通性
+if [ $TEST_CONN -eq 1 ]; then
+    echo -e "${YELLOW}测试 ZeroTier 网关连通性...${NC}"
+    if [ -z "$ZT_INTERFACE" ]; then
+        echo -e "${RED}错误: ZeroTier 接口未定义${NC}"
+        exit 1
+    fi
+    
+    echo "1. 测试 ZeroTier 接口连通性..."
+    ping -c 1 -W 2 -I "$ZT_INTERFACE" 8.8.8.8 >/dev/null 2>&1
+    ping_result=$?
+    if [ $ping_result -eq 0 ]; then
+        echo -e "${GREEN}从 ZeroTier 接口到外网连通性正常${NC}"
+    else
+        echo -e "${RED}从 ZeroTier 接口到外网连通性异常${NC}"
+    fi
+fi
+
+# 显示日志
+if [ $SHOW_LOGS -eq 1 ]; then
+    echo -e "${YELLOW}最近日志:${NC}"
+    if [ -f "/var/log/zt-gateway.log" ]; then
+        tail -n 20 "/var/log/zt-gateway.log"
+    else
+        echo "未找到日志文件"
+    fi
+fi

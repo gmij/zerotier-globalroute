@@ -1,0 +1,72 @@
+#!/bin/bash
+# ZeroTier 网关每日检查脚本
+
+CONFIG_FILE="/etc/zt-gateway/config"
+LOG_FILE="/var/log/zt-gateway.log"
+
+log() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] [DAILY-CHECK] $message" >> "$LOG_FILE"
+}
+
+# 加载配置
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    log "ERROR" "找不到配置文件，跳过检查"
+    exit 1
+fi
+
+# 检查 ZeroTier 服务
+if ! systemctl is-active --quiet zerotier-one; then
+    log "WARN" "ZeroTier 服务未运行，尝试启动"
+    systemctl start zerotier-one
+fi
+
+# 检查 iptables 服务
+if ! systemctl is-active --quiet iptables; then
+    log "WARN" "iptables 服务未运行，尝试启动"
+    systemctl start iptables
+fi
+
+# 检查 IP 转发
+if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
+    log "WARN" "IP 转发未启用，尝试启用"
+    sysctl -w net.ipv4.ip_forward=1
+fi
+
+# 检查 ZeroTier 接口
+if ! ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
+    log "WARN" "ZeroTier 接口 $ZT_INTERFACE 不存在"
+else
+    # 检查 MTU 设置
+    current_mtu=$(ip link show "$ZT_INTERFACE" | grep -oP 'mtu \K\d+')
+    if [ "$current_mtu" != "$ZT_MTU" ]; then
+        log "WARN" "ZeroTier 接口 MTU 不匹配，期望 $ZT_MTU，实际 $current_mtu，尝试调整"
+        ip link set "$ZT_INTERFACE" mtu "$ZT_MTU"
+    fi
+fi
+
+# 检查连接跟踪表使用情况
+if [ -f /proc/net/nf_conntrack ]; then
+    active_conn=$(cat /proc/net/nf_conntrack | wc -l)
+    max_conn=$(sysctl -n net.netfilter.nf_conntrack_max 2>/dev/null)
+    usage_percent=$(awk "BEGIN {print 100*$active_conn/$max_conn}")
+    
+    if (( $(echo "$usage_percent > 80" | bc -l) )); then
+        log "WARN" "连接跟踪表使用率高: $usage_percent%"
+    fi
+fi
+
+# 检查 NAT 规则
+nat_rules=$(iptables -t nat -L -v -n | grep MASQUERADE | wc -l)
+if [ "$nat_rules" -eq 0 ]; then
+    log "WARN" "NAT 规则缺失，尝试恢复"
+    iptables -t nat -A POSTROUTING -s "$ZT_NETWORK" -o "$WAN_INTERFACE" -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o "$ZT_INTERFACE" -j MASQUERADE
+    iptables-save > /etc/sysconfig/iptables
+fi
+
+log "INFO" "每日检查完成"

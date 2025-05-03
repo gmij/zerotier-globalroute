@@ -1,0 +1,70 @@
+name: Build and Release
+
+# 触发条件：当创建新标签时（通常用于版本发布）自动触发，或手动触发
+on:
+  push:
+    tags:
+      - 'v*' # 匹配所有以v开头的标签，如v1.0.0
+  # 添加手动触发功能
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: '是否为预发布版本'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v3
+
+      - name: 设置执行权限
+        run: chmod +x build.sh
+
+      - name: 运行打包脚本
+        run: ./build.sh
+
+      - name: 获取版本号
+        id: get_version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=${{ github.event.inputs.prerelease }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 创建 Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ZeroTier Gateway ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: ${{ steps.get_version.outputs.PRERELEASE }}
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          files: |
+            zerotier-gateway-bundle.sh
+          body: |
+            # ZeroTier Gateway ${{ steps.get_version.outputs.VERSION }}
+            
+            这是使用GitHub Actions自动打包的ZeroTier高级网关脚本。
+            
+            ## 使用方法
+            
+            1. 下载 `zerotier-gateway-bundle.sh` 文件
+            2. 设置执行权限: `chmod +x zerotier-gateway-bundle.sh`
+            3. 运行脚本: `./zerotier-gateway-bundle.sh`
+            
+            ## 发布日期
+            
+            发布时间: $(date +'%Y-%m-%d')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

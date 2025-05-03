@@ -1,0 +1,23 @@
+#!/bin/bash
+# 重启后设置 ZeroTier MTU
+# 此脚本由 ZT 网关配置工具自动生成
+LOG_FILE="/var/log/zt-gateway.log"
+
+log() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] [NETWORK-SCRIPT] $message" >> "$LOG_FILE"
+}
+
+log "INFO" "网络接口状态变化: $1 $2"
+
+if [ -f /etc/sysconfig/zt-gateway-config ]; then
+    source /etc/sysconfig/zt-gateway-config
+    if [ -n "$ZT_INTERFACE" ] && [ -n "$ZT_MTU" ]; then
+        if ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
+            log "INFO" "设置 $ZT_INTERFACE MTU 为 $ZT_MTU"
+            ip link set "$ZT_INTERFACE" mtu "$ZT_MTU"
+        fi
+    fi
+fi
