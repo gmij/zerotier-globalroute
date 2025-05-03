@@ -25,7 +25,7 @@ echo -e "${GREEN}开始打包 ZeroTier Gateway 脚本 (版本 $VERSION)...${NC}"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# 函数：将文件内容转换为内联代码块
+# 函数：将文件内容转换为base64编码的变量
 function file_to_inline() {
   local file="$1"
   local var_name="$2"
@@ -36,9 +36,7 @@ function file_to_inline() {
   fi
   
   echo "# --- 开始文件: $(basename "$file") ---"
-  echo "read -r -d '' $var_name << 'EOF_$var_name'"
-  cat "$file"
-  echo "EOF_$var_name"
+  echo "$var_name=\"$(base64 -w 0 "$file")\""
   echo "# --- 结束文件: $(basename "$file") ---"
 }
 
@@ -78,6 +76,12 @@ function prepare_temp_files() {
   mkdir -p "$TMP_DIR/templates"
 }
 
+# 加载base64解码函数
+function decode_file() {
+  local var_content="$1"
+  echo "$var_content" | base64 --decode
+}
+
 # 初始化临时文件
 prepare_temp_files
 
@@ -90,8 +94,8 @@ for file in "$SCRIPT_DIR/cmd"/*.sh; do
   var_name="${filename%.sh}"
   file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
   
-  echo "cat > \"\$TMP_DIR/cmd/$filename\" << EOF_WRITE" >> "$OUTPUT_FILE"
-  echo "\$${var_name}" >> "$OUTPUT_FILE"
+  echo "cat > \"\$TMP_DIR/cmd/$filename\" << 'EOF_WRITE'" >> "$OUTPUT_FILE"
+  echo "$(decode_file \"\$$var_name\")" >> "$OUTPUT_FILE"
   echo "EOF_WRITE" >> "$OUTPUT_FILE"
   echo "chmod +x \"\$TMP_DIR/cmd/$filename\"" >> "$OUTPUT_FILE"
   echo "" >> "$OUTPUT_FILE"
@@ -104,8 +108,8 @@ for file in "$SCRIPT_DIR/templates"/*; do
   var_name="${filename//[-.]/}"
   file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
   
-  echo "cat > \"\$TMP_DIR/templates/$filename\" << EOF_WRITE" >> "$OUTPUT_FILE"
-  echo "\$${var_name}" >> "$OUTPUT_FILE"
+  echo "cat > \"\$TMP_DIR/templates/$filename\" << 'EOF_WRITE'" >> "$OUTPUT_FILE"
+  echo "$(decode_file \"\$$var_name\")" >> "$OUTPUT_FILE"
   echo "EOF_WRITE" >> "$OUTPUT_FILE"
   echo "" >> "$OUTPUT_FILE"
 done
@@ -118,8 +122,8 @@ file_to_inline "$SCRIPT_DIR/zerotier-gateway.sh" "main_script" >> "$OUTPUT_FILE"
 cat >> "$OUTPUT_FILE" << 'EOL'
 # 运行主脚本
 SCRIPT_PATH="$TMP_DIR/zerotier-gateway.sh"
-cat > "$SCRIPT_PATH" << EOF_WRITE
-$main_script
+cat > "$SCRIPT_PATH" << 'EOF_WRITE'
+$(decode_file "$main_script")
 EOF_WRITE
 chmod +x "$SCRIPT_PATH"
 
