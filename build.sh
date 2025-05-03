@@ -25,19 +25,14 @@ echo -e "${GREEN}开始打包 ZeroTier Gateway 脚本 (版本 $VERSION)...${NC}"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# 函数：将文件内容转换为base64编码的变量
-function file_to_inline() {
+# 函数：将文件内容编码为base64
+function encode_file() {
   local file="$1"
-  local var_name="$2"
-  
   if [ ! -f "$file" ]; then
     echo -e "${RED}错误: 文件不存在: $file${NC}" >&2
     exit 1
   fi
-  
-  echo "# --- 开始文件: $(basename "$file") ---"
-  echo "$var_name=\"$(base64 -w 0 "$file")\""
-  echo "# --- 结束文件: $(basename "$file") ---"
+  base64 -w 0 "$file"
 }
 
 # 开始创建输出文件
@@ -54,10 +49,6 @@ cat > "$OUTPUT_FILE" << EOL
 # 本文件由自动打包工具生成，包含了所有必要的模块和模板
 # ====================================================================
 
-EOL
-
-# 写入颜色定义和辅助函数
-cat >> "$OUTPUT_FILE" << 'EOL'
 # 设置颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -66,38 +57,26 @@ BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
-# 创建临时目录
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+# 创建临时目录并设置清理
+TMP_DIR=\$(mktemp -d)
+trap 'rm -rf "\$TMP_DIR"' EXIT
 
-# 准备工作目录
-function prepare_temp_files() {
-  mkdir -p "$TMP_DIR/cmd"
-  mkdir -p "$TMP_DIR/templates"
-}
+# 准备目录结构
+mkdir -p "\$TMP_DIR/cmd"
+mkdir -p "\$TMP_DIR/templates"
 
-# 加载base64解码函数
-function decode_file() {
-  local var_content="$1"
-  echo "$var_content" | base64 --decode
-}
-
-# 初始化临时文件
-prepare_temp_files
-
+# 开始提取文件 - 直接写入文件而不使用decode_file函数
 EOL
 
 # 添加 cmd 目录中的文件
 echo -e "${YELLOW}添加 cmd 目录中的文件...${NC}"
 for file in "$SCRIPT_DIR/cmd"/*.sh; do
   filename=$(basename "$file")
-  var_name="${filename%.sh}"
-  file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
+  base64_content=$(encode_file "$file")
   
   cat >> "$OUTPUT_FILE" << EOL
-cat > "\$TMP_DIR/cmd/$filename" << 'EOF_WRITE'
-\$(decode_file "\$$var_name")
-EOF_WRITE
+# 提取 $filename
+echo "$base64_content" | base64 --decode > "\$TMP_DIR/cmd/$filename"
 chmod +x "\$TMP_DIR/cmd/$filename"
 
 EOL
@@ -107,40 +86,34 @@ done
 echo -e "${YELLOW}添加 templates 目录中的文件...${NC}"
 for file in "$SCRIPT_DIR/templates"/*; do
   filename=$(basename "$file")
-  var_name="${filename//[-.]/}"
-  file_to_inline "$file" "$var_name" >> "$OUTPUT_FILE"
+  base64_content=$(encode_file "$file")
   
   cat >> "$OUTPUT_FILE" << EOL
-cat > "\$TMP_DIR/templates/$filename" << 'EOF_WRITE'
-\$(decode_file "\$$var_name")
-EOF_WRITE
+# 提取 $filename
+echo "$base64_content" | base64 --decode > "\$TMP_DIR/templates/$filename"
 
 EOL
 done
 
 # 添加主脚本
 echo -e "${YELLOW}添加主脚本...${NC}"
-file_to_inline "$SCRIPT_DIR/zerotier-gateway.sh" "main_script" >> "$OUTPUT_FILE"
+main_script_base64=$(encode_file "$SCRIPT_DIR/zerotier-gateway.sh")
 
-# 添加执行主脚本的代码
-cat >> "$OUTPUT_FILE" << 'EOL'
-# 运行主脚本
-SCRIPT_PATH="$TMP_DIR/zerotier-gateway.sh"
-cat > "$SCRIPT_PATH" << 'EOF_WRITE'
-$(decode_file "$main_script")
-EOF_WRITE
-chmod +x "$SCRIPT_PATH"
+cat >> "$OUTPUT_FILE" << EOL
+# 提取主脚本
+echo "$main_script_base64" | base64 --decode > "\$TMP_DIR/zerotier-gateway.sh"
+chmod +x "\$TMP_DIR/zerotier-gateway.sh"
 
 # 打印一条提示消息
-echo -e "${GREEN}正在运行 ZeroTier 高级网关配置脚本...${NC}"
-echo -e "${YELLOW}注意：这是一个打包版本，所有依赖文件已内置${NC}"
+echo -e "\${GREEN}正在运行 ZeroTier 高级网关配置脚本...\${NC}"
+echo -e "\${YELLOW}注意：这是一个打包版本，所有依赖文件已内置\${NC}"
 echo ""
 
 # 执行主脚本，并传递所有命令行参数
-"$SCRIPT_PATH" "$@"
+"\$TMP_DIR/zerotier-gateway.sh" "\$@"
 
 # 脚本结束
-exit $?
+exit \$?
 EOL
 
 # 设置可执行权限
