@@ -100,7 +100,7 @@ setup_install_dirs() {
   echo -e "\${BLUE}创建安装目录结构...\${NC}"
   
   # 创建子目录
-  mkdir -p "\$ZT_SCRIPT_DIR/cmd" "\$ZT_SCRIPT_DIR/templates" || {
+  mkdir -p "\$ZT_SCRIPT_DIR/cmd" "\$ZT_SCRIPT_DIR/templates" "\$ZT_SCRIPT_DIR/bin" "\$ZT_SCRIPT_DIR/scripts" || {
     echo -e "\${RED}无法创建安装子目录\${NC}"
     return 1
   }
