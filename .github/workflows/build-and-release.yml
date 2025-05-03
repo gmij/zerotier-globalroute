@@ -9,14 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (例如: v1.0.0)'
+        description: '版本号 (自动生成格式: yyMMdd.hhMM)'
         required: true
-        default: 'v1.0.0'
+        default: 'auto_version'
       prerelease:
         description: '是否为预发布版本'
         required: true
         type: boolean
-        default: false
+        default: true
 
 # 添加所需的权限配置
 permissions:
@@ -40,12 +40,21 @@ jobs:
         id: get_version
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-            echo "PRERELEASE=${{ github.event.inputs.prerelease }}" >> $GITHUB_OUTPUT
+            # 如果是手动触发并且版本号设置为自动生成，则使用当前时间格式
+            if [[ "${{ github.event.inputs.version }}" == "auto_version" ]]; then
+              # 生成格式：yyMMdd.hhmm
+              VERSION="v$(date +'%y%m%d.%H%M')"
+              echo "使用自动生成的版本号: $VERSION"
+            else
+              VERSION="${{ github.event.inputs.version }}"
+            fi
+            PRERELEASE="${{ github.event.inputs.prerelease }}"
           else
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+            VERSION=${GITHUB_REF#refs/tags/}
+            PRERELEASE=false
           fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "PRERELEASE=$PRERELEASE" >> $GITHUB_OUTPUT
 
       - name: 创建 Release
         id: create_release
