@@ -1,6 +1,6 @@
 # ZeroTier 全局路由网关
 
-ZeroTier 全局路由网关是一套用于 CentOS 系统的脚本工具集，帮助您轻松将 Linux 服务器配置为 ZeroTier 网络的双向网关。通过本工具，您可以实现 ZeroTier 虚拟网络与外部网络之间的通信。
+ZeroTier 全局路由网关是一套主要针对 CentOS 系统开发的脚本工具集，帮助您轻松将 Linux 服务器配置为 ZeroTier 网络的双向网关。通过本工具，您可以实现 ZeroTier 虚拟网络与外部网络之间的通信。
 
 > **免责声明**：本项目仅用于学习和研究目的，不得用于商业用途。如有违反相关法律法规的使用场景，一切后果由使用者自行承担。
 
@@ -13,6 +13,7 @@ ZeroTier 全局路由网关是一套用于 CentOS 系统的脚本工具集，帮
 - **状态监控**：提供简单的监控脚本查看网关状态
 - **自动修复**：周期性检查网络配置，确保服务稳定运行
 - **IPv6 支持**：可选的 IPv6 支持功能
+- **便携式打包**：支持生成单一可执行的打包文件
 
 ## 系统要求
 
@@ -42,7 +43,7 @@ chmod +x zerotier-gateway.sh
 ./build.sh
 ```
 
-生成的 `zerotier-gateway-bundle.sh` 文件包含了所有必要的组件，可以直接在目标系统上运行。
+生成的 `zerotier-gateway-bundle.sh` 文件包含了所有必要的组件，可以直接在目标系统上运行。打包版本可以方便地迁移到不同服务器，只需复制整个安装目录即可。
 
 ## 命令行参数
 
@@ -50,7 +51,7 @@ chmod +x zerotier-gateway.sh
 
 - `-z, --zt-if <接口名称>` - 指定 ZeroTier 网络接口
 - `-w, --wan-if <接口名称>` - 指定外网接口
-- `-m, --mtu <值>` - 设置 ZeroTier 接口 MTU 值
+- `-m, --mtu <值>` - 设置 ZeroTier 接口 MTU 值（默认1400）
 - `-s, --status` - 显示当前网关状态
 - `-b, --backup` - 备份当前 iptables 规则
 - `-d, --debug` - 启用调试模式
