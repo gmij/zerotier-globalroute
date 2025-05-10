@@ -70,30 +70,15 @@ setup_firewall() {
             ipset add gfwlist 1.1.1.1    # Cloudflare DNS (备用)
         fi
         
-        # 为 Squid 代理流量添加特殊处理
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
-        
-        # 添加基本NAT规则，确保基本连接可用（排除已经处理的 Squid 流量）
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp ! --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p udp -o $WAN_INTERFACE -j MASQUERADE
-        
-        # 然后添加 GFW List 特定的规则（排除 Squid 流量）
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp ! --dport 3128 -m set --match-set gfwlist dst -o $WAN_INTERFACE -j MASQUERADE
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p udp -m set --match-set gfwlist dst -o $WAN_INTERFACE -j MASQUERADE
-        
-        # 添加 mark 规则，用于路由选择 (排除 Squid 代理端口 3128 的流量)
-        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p tcp ! --dport 3128 -m set --match-set gfwlist dst -j MARK --set-mark 1
-        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p udp -m set --match-set gfwlist dst -j MARK --set-mark 1
-        
-        # 添加策略路由
-        if ! grep -q "200 gfw" /etc/iproute2/rt_tables; then
-            echo "200 gfw" >> /etc/iproute2/rt_tables
-        fi
-        
         # 获取默认网关
         local DEFAULT_GW=$(ip route | grep default | grep -v linkdown | head -1 | awk '{print $3}')
         
         if [ -n "$DEFAULT_GW" ]; then
+            # 添加策略路由
+            if ! grep -q "200 gfw" /etc/iproute2/rt_tables; then
+                echo "200 gfw" >> /etc/iproute2/rt_tables
+            fi
+            
             # 配置策略路由表
             ip route flush table gfw 2>/dev/null || true
             ip route add default via $DEFAULT_GW dev $WAN_INTERFACE table gfw
@@ -101,13 +86,24 @@ setup_firewall() {
             # 删除可能的重复规则
             ip rule del fwmark 1 table gfw 2>/dev/null || true
             
-            # 添加新规则
-            ip rule add fwmark 1 table gfw
+            # 添加新规则 - 确保优先级低于Squid路由规则
+            ip rule add fwmark 1 table gfw prio 32764
+            
+            # 添加 mark 规则，用于路由选择 (排除 Squid 代理端口 3128 的流量)
+            iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p tcp ! --dport 3128 -m set --match-set gfwlist dst -j MARK --set-mark 1
+            iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p udp -m set --match-set gfwlist dst -j MARK --set-mark 1
+            
+            # 为 Squid 代理流量添加特殊处理
+            iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
+            
+            # 添加基本NAT规则，确保基本连接可用（排除已经处理的 Squid 流量）
+            iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp ! --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
+            iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p udp -o $WAN_INTERFACE -j MASQUERADE
+            
+            log "INFO" "GFW List 分流规则配置完成"
         else
             log "WARN" "无法获取默认网关，分流可能无法正常工作"
         fi
-        
-        log "INFO" "GFW List 分流规则配置完成"
     else
         # 常规 NAT 规则（排除 Squid 流量）
         iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp ! --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
@@ -129,35 +125,50 @@ setup_firewall() {
     # 允许 Squid 代理端口（3128）的入站流量
     iptables -A INPUT -p tcp --dport 3128 -j ACCEPT
     
-    # 创建一个专门的链来处理Squid相关流量
-    iptables -N SQUID-TRAFFIC 2>/dev/null || iptables -F SQUID-TRAFFIC
+    log "INFO" "配置 Squid 代理流量规则..."
     
-    # 1. 对于来自 ZeroTier 网络到 Squid 代理端口的流量（入站）
-    # 将其标记为直接流量，不受 GFW List 控制
-    iptables -t mangle -I PREROUTING 1 -i $ZT_INTERFACE -p tcp --dport 3128 -j MARK --set-mark 2
+    # 为 Squid 流量设置单独的策略路由表
+    if ! grep -q "210 squid" /etc/iproute2/rt_tables; then
+        echo "210 squid" >> /etc/iproute2/rt_tables
+    fi
     
-    # 2. 对于带有代理目标标记的源流量（从Squid发出）
-    # 这处理了Squid发出的所有HTTP/HTTPS请求，无需依赖用户/组ID
-    iptables -t mangle -A OUTPUT -p tcp --sport 3128 -j MARK --set-mark 2
+    # 获取默认网关
+    local DEFAULT_GW=$(ip route | grep default | grep -v linkdown | head -1 | awk '{print $3}')
     
-    # 3. 确保标记为 Squid 流量的数据包不会被其他 mangle 规则重新标记
-    iptables -t mangle -I PREROUTING 1 -m mark --mark 2 -j RETURN
-    iptables -t mangle -I OUTPUT 1 -m mark --mark 2 -j RETURN
-    
-    # 4. 跳过带有 Squid 标记的流量的 NAT 规则
-    iptables -t nat -I PREROUTING 1 -m mark --mark 2 -j RETURN
-    iptables -t nat -I POSTROUTING 1 -m mark --mark 2 -j MASQUERADE
-    
-    # 5. 使用连接跟踪来处理相关连接
-    iptables -t mangle -A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
-    iptables -t mangle -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
-    iptables -t mangle -A OUTPUT -m mark ! --mark 0 -j CONNMARK --save-mark
-    iptables -t mangle -A PREROUTING -m mark ! --mark 0 -j CONNMARK --save-mark
-    
-    log "INFO" "Squid 代理流量规则已配置"
-
-    # 配置 Squid 代理路由
-    setup_squid_routing "$WAN_INTERFACE"
+    if [ -n "$DEFAULT_GW" ]; then
+        # 配置 Squid 代理路由表 - 不受 GFW List 影响的直接路由
+        ip route flush table squid 2>/dev/null || true
+        ip route add default via $DEFAULT_GW dev $WAN_INTERFACE table squid
+        
+        # 删除可能的重复规则
+        ip rule del fwmark 2 table squid 2>/dev/null || true
+        
+        # 1. 对于来自 ZeroTier 网络到 Squid 代理端口的流量（入站）- 最高优先级
+        iptables -t mangle -I PREROUTING 1 -i $ZT_INTERFACE -p tcp --dport 3128 -j MARK --set-mark 2
+        
+        # 2. 对于从Squid发出的请求 - 最高优先级
+        iptables -t mangle -I OUTPUT 1 -p tcp --sport 3128 -j MARK --set-mark 2
+        
+        # 3. 确保这些标记不会被重新标记 - 最高优先级
+        iptables -t mangle -I PREROUTING 1 -m mark --mark 2 -j ACCEPT
+        iptables -t mangle -I OUTPUT 1 -m mark --mark 2 -j ACCEPT
+        
+        # 4. 确保 NAT 正确处理 Squid 流量 - 最高优先级
+        iptables -t nat -I POSTROUTING 1 -m mark --mark 2 -j MASQUERADE
+        
+        # 5. 连接跟踪 - 配置一次，减少重复
+        iptables -t mangle -A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
+        iptables -t mangle -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
+        iptables -t mangle -A OUTPUT -m mark ! --mark 0 -j CONNMARK --save-mark
+        iptables -t mangle -A PREROUTING -m mark ! --mark 0 -j CONNMARK --save-mark
+        
+        # 6. 添加策略路由规则
+        ip rule add fwmark 2 table squid
+        
+        log "INFO" "Squid 代理流量规则配置完成"
+    else
+        log "ERROR" "无法获取默认网关，Squid 路由无法配置"
+    fi
     
     # IPv6 防火墙规则 (如果启用)
     if [ "$IPV6_ENABLED" = "1" ]; then
@@ -268,15 +279,12 @@ update_firewall_rules() {
     setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED"
 }
 
-# 专门配置 Squid 代理路由规则
-setup_squid_routing() {
-    local WAN_INTERFACE="$1"
+# 专门检测 Squid 服务状态
+check_squid_service() {
     local SQUID_PORT="3128"
-    
-    log "INFO" "配置 Squid 代理路由规则..."
-    
-    # 检查 Squid 服务是否运行 - 只用于提示，不依赖此检查
     local squid_running=0
+    
+    log "INFO" "检测 Squid 服务状态..."
     
     # 检测 squid 服务
     if systemctl is-active --quiet squid; then
@@ -302,48 +310,8 @@ setup_squid_routing() {
     fi
     
     if [ "$squid_running" = "0" ]; then
-        log "WARN" "Squid 服务可能未运行，但仍将配置端口 ${SQUID_PORT} 的路由规则"
+        log "WARN" "Squid 服务可能未运行，但仍将配置端口路由规则"
     fi
     
-    # 确保 Squid 流量可以正常路由（基于端口和连接跟踪）
-    if ! ip rule list | grep -q "fwmark 2"; then
-        # 为 Squid 流量设置单独的策略路由表
-        if ! grep -q "210 squid" /etc/iproute2/rt_tables; then
-            echo "210 squid" >> /etc/iproute2/rt_tables
-        fi
-        
-        # 获取默认网关
-        local DEFAULT_GW=$(ip route | grep default | grep -v linkdown | head -1 | awk '{print $3}')
-        
-        if [ -n "$DEFAULT_GW" ]; then
-            # 配置 Squid 代理路由表 - 不受 GFW List 影响的直接路由
-            ip route flush table squid 2>/dev/null || true
-            ip route add default via $DEFAULT_GW dev $WAN_INTERFACE table squid
-            
-            # 添加 Squid 流量标记规则 - 基于端口和连接跟踪，无需依赖用户/组
-            # 1. 基于入口端口 (客户端到Squid)
-            iptables -t mangle -A PREROUTING -p tcp --dport $SQUID_PORT -j MARK --set-mark 2
-            
-            # 2. 基于源端口 (Squid作为客户端发出的请求)
-            iptables -t mangle -A OUTPUT -p tcp --sport $SQUID_PORT -j MARK --set-mark 2
-            
-            # 3. 使用连接跟踪来标记相关连接
-            iptables -t mangle -A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
-            iptables -t mangle -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j CONNMARK --restore-mark
-            iptables -t mangle -A OUTPUT -m mark ! --mark 0 -j CONNMARK --save-mark
-            iptables -t mangle -A PREROUTING -m mark ! --mark 0 -j CONNMARK --save-mark
-            
-            # 删除可能的重复规则
-            ip rule del fwmark 2 table squid 2>/dev/null || true
-            
-            # 添加新策略路由规则
-            ip rule add fwmark 2 table squid
-            
-            log "INFO" "Squid 代理路由规则配置完成"
-        else
-            log "WARN" "无法获取默认网关，Squid 路由可能无法正常工作"
-        fi
-    else
-        log "INFO" "Squid 策略路由规则已存在，无需重新配置"
-    fi
+    return $squid_running
 }
