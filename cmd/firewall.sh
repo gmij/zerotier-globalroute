@@ -9,6 +9,7 @@ setup_firewall() {
     local WAN_INTERFACE="$2"
     local ZT_NETWORK="$3"
     local IPV6_ENABLED="$4"
+    local GFWLIST_MODE="$5"
 
     # 确保 conntrack 模块已加载
     modprobe nf_conntrack
@@ -52,7 +53,51 @@ setup_firewall() {
 
     # NAT 和 MSS 调整规则
     log "INFO" "配置 NAT 和 MSS 规则..."
-    iptables -t nat -A POSTROUTING -s $ZT_NETWORK -o $WAN_INTERFACE -j MASQUERADE
+    
+    # 如果启用了 GFW List 模式，配置分流规则
+    if [ "$GFWLIST_MODE" = "1" ]; then
+        log "INFO" "配置 GFW List 分流规则..."
+        
+        # 确保 ipset 已创建
+        if ! ipset list gfwlist &>/dev/null; then
+            log "INFO" "创建 gfwlist ipset..."
+            ipset create gfwlist hash:ip timeout 86400
+        fi
+        
+        # 对 GFW List 中的 IP 使用 ZeroTier 路由
+        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -m set --match-set gfwlist dst -o $WAN_INTERFACE -j MASQUERADE
+        
+        # 添加 mark 规则，用于路由选择
+        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -m set --match-set gfwlist dst -j MARK --set-mark 1
+        
+        # 添加策略路由
+        if ! grep -q "200 gfw" /etc/iproute2/rt_tables; then
+            echo "200 gfw" >> /etc/iproute2/rt_tables
+        fi
+        
+        # 获取默认网关
+        local DEFAULT_GW=$(ip route | grep default | grep -v linkdown | head -1 | awk '{print $3}')
+        
+        if [ -n "$DEFAULT_GW" ]; then
+            # 配置策略路由表
+            ip route flush table gfw 2>/dev/null || true
+            ip route add default via $DEFAULT_GW dev $WAN_INTERFACE table gfw
+            
+            # 删除可能的重复规则
+            ip rule del fwmark 1 table gfw 2>/dev/null || true
+            
+            # 添加新规则
+            ip rule add fwmark 1 table gfw
+        else
+            log "WARN" "无法获取默认网关，分流可能无法正常工作"
+        fi
+        
+        log "INFO" "GFW List 分流规则配置完成"
+    else
+        # 常规 NAT 规则
+        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -o $WAN_INTERFACE -j MASQUERADE
+    fi
+    
     iptables -t nat -A POSTROUTING -o $ZT_INTERFACE -j MASQUERADE
     iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 

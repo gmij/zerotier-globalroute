@@ -25,6 +25,11 @@ show_help() {
     echo "  --test           测试网关连通性"
     echo "  --uninstall      卸载网关配置"
     echo ""
+    echo "GFW List 选项:"
+    echo "  --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"
+    echo "  --update-gfwlist 更新 GFW List"
+    echo "  --gfwlist-status 显示 GFW List 状态"
+    echo ""
 }
 
 # 自动检测 ZeroTier 接口

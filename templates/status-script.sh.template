@@ -61,14 +61,27 @@ if [ $FULL_INFO -eq 1 ]; then
 
     # 显示配置信息
     echo -e "${YELLOW}配置信息:${NC}"
-    if [ -f "$CONFIG_FILE" ]; then
-        echo "ZeroTier 接口: $ZT_INTERFACE"
+    if [ -f "$CONFIG_FILE" ]; then        echo "ZeroTier 接口: $ZT_INTERFACE"
         echo "外网接口: $WAN_INTERFACE"
         echo "ZeroTier 网络: $ZT_NETWORK"
         echo "MTU 设置: $ZT_MTU"
         if [ -n "$ZT_NETWORK_ID" ]; then
             echo "网络 ID: $ZT_NETWORK_ID"
         fi
+        
+        # 显示 GFW List 模式状态
+        if [ "$GFWLIST_MODE" = "1" ]; then
+            echo -e "${YELLOW}GFW List 分流模式: ${GREEN}启用${NC}"
+            if [ -f "/etc/zt-gateway/gfwlist_domains.txt" ]; then
+                echo "GFW List 域名数量: $(wc -l < /etc/zt-gateway/gfwlist_domains.txt)"
+            fi
+            if [ -f "/etc/zt-gateway/gfwlist.txt.info" ]; then
+                echo "GFW List 更新时间: $(cat /etc/zt-gateway/gfwlist.txt.info | sed 's/更新时间: //')"
+            fi
+        else
+            echo -e "GFW List 分流模式: ${RED}禁用${NC}"
+        fi
+        
         echo "最后更新: $LAST_UPDATE"
     else
         echo "未找到配置文件"

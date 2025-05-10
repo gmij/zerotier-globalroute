@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/cmd/detect.sh"
 source "$SCRIPT_DIR/cmd/monitor.sh"
 source "$SCRIPT_DIR/cmd/uninstall.sh"
 source "$SCRIPT_DIR/cmd/firewall.sh"
+source "$SCRIPT_DIR/cmd/gfwlist.sh"
 
 # 默认参数
 ZT_INTERFACE=""
@@ -21,6 +22,7 @@ WAN_INTERFACE=""
 ZT_MTU=1400
 DEBUG_MODE=0
 IPV6_ENABLED=0
+GFWLIST_MODE=0
 
 # 解析命令行参数
 while [[ "$#" -gt 0 ]]; do
@@ -52,8 +54,7 @@ while [[ "$#" -gt 0 ]]; do
             uninstall_gateway
             exit 0
             ;;
-        --ipv6) IPV6_ENABLED=1 ;;
-        --stats) 
+        --ipv6) IPV6_ENABLED=1 ;;        --stats) 
             prepare_dirs
             show_traffic_stats
             exit 0
@@ -62,6 +63,19 @@ while [[ "$#" -gt 0 ]]; do
             prepare_dirs
             test_gateway
             exit $?
+            ;;
+        --gfwlist) 
+            GFWLIST_MODE=1 
+            ;;
+        --update-gfwlist)
+            prepare_dirs
+            update_gfwlist
+            exit 0
+            ;;
+        --gfwlist-status)
+            prepare_dirs
+            check_gfwlist_status
+            exit 0
             ;;
         *) handle_error "未知参数: $1" ;;
     esac
@@ -171,6 +185,7 @@ ZT_NETWORK_ID="$ZT_NETWORK_ID"
 
 # 功能设置
 IPV6_ENABLED="$IPV6_ENABLED"
+GFWLIST_MODE="$GFWLIST_MODE"
 
 # 脚本版本
 SCRIPT_VERSION="3.0"
@@ -227,8 +242,14 @@ sysctl -p /etc/sysctl.d/99-zt-gateway.conf || handle_error "应用内核参数�
 log "INFO" "调整 $ZT_INTERFACE MTU 为 $ZT_MTU..."
 ip link set $ZT_INTERFACE mtu $ZT_MTU || handle_error "调整 MTU 失败"
 
+# 如果启用了 GFW List 模式，初始化相关设置
+if [ "$GFWLIST_MODE" = "1" ]; then
+    log "INFO" "启用 GFW List 分流模式..."
+    init_gfwlist_mode
+fi
+
 # 配置防火墙规则
-setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED"
+setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED" "$GFWLIST_MODE"
 
 # 创建 MTU 设置脚本，重启后执行
 log "INFO" "配置网络接口监控脚本..."
@@ -285,6 +306,14 @@ log "INFO" "ZeroTier 网关配置完成"
 echo -e "${GREEN}ZeroTier 网关配置完成！${NC}"
 echo -e "${GREEN}已配置的接口: ZT=$ZT_INTERFACE, WAN=$WAN_INTERFACE${NC}"
 echo -e "${GREEN}ZeroTier 网络: $ZT_NETWORK${NC}"
-echo -e "${GREEN}您现在可以通过 ZeroTier 网络访问互联网，并且外部流量可以通过此服务器访问 ZeroTier 网络。${NC}"
+
+if [ "$GFWLIST_MODE" = "1" ]; then
+    echo -e "${YELLOW}GFW List 分流模式已启用！${NC}"
+    echo -e "${YELLOW}仅 GFW List 中的网站会通过 ZeroTier 全局路由，其他网站走正常线路。${NC}"
+    echo -e "${YELLOW}您可以使用 --update-gfwlist 参数更新 GFW List，使用 --gfwlist-status 查看状态。${NC}"
+else
+    echo -e "${GREEN}您现在可以通过 ZeroTier 网络访问互联网，并且外部流量可以通过此服务器访问 ZeroTier 网络。${NC}"
+fi
+
 echo -e "${YELLOW}配置已通过 iptables-services 设置为开机自启动${NC}"
 echo -e "${YELLOW}如需查看状态，请运行: /usr/local/bin/zt-status${NC}"
