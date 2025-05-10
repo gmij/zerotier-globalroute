@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 日志配置
-LOG_FILE="/var/log/zt-gateway.log"
+LOG_FILE="${SCRIPT_DIR}/logs/zt-gateway.log"
 CONFIG_DIR="/etc/zt-gateway"
 CONFIG_FILE="$CONFIG_DIR/config"
 
@@ -41,6 +41,8 @@ handle_error() {
 prepare_dirs() {
     # 创建配置目录
     mkdir -p "$CONFIG_DIR"
+    # 创建logs目录
+    mkdir -p "${SCRIPT_DIR}/logs"
     touch "$LOG_FILE"
     chmod 644 "$LOG_FILE"
 }

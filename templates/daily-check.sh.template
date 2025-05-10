@@ -2,7 +2,9 @@
 # ZeroTier 网关每日检查脚本
 
 CONFIG_FILE="/etc/zt-gateway/config"
-LOG_FILE="/var/log/zt-gateway.log"
+# 使用与主脚本相同的日志目录
+ZT_SCRIPT_DIR="$(dirname $(readlink -f "$0"))/.."
+LOG_FILE="$ZT_SCRIPT_DIR/logs/zt-gateway.log"
 
 log() {
     local level="$1"

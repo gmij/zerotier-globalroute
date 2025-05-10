@@ -15,6 +15,7 @@ source "$SCRIPT_DIR/cmd/monitor.sh"
 source "$SCRIPT_DIR/cmd/uninstall.sh"
 source "$SCRIPT_DIR/cmd/firewall.sh"
 source "$SCRIPT_DIR/cmd/gfwlist.sh"
+source "$SCRIPT_DIR/cmd/dnslog.sh"  # 加载DNS日志模块
 
 # 默认参数
 ZT_INTERFACE=""
@@ -23,6 +24,7 @@ ZT_MTU=1400
 DEBUG_MODE=0
 IPV6_ENABLED=0
 GFWLIST_MODE=0
+DNS_LOGGING=1  # 默认启用DNS日志
 
 # 解析命令行参数
 while [[ "$#" -gt 0 ]]; do
@@ -49,7 +51,8 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         -d|--debug) DEBUG_MODE=1 ;;
         -r|--restart) RESTART_MODE=1 ;;
-        -u|--update) UPDATE_MODE=1 ;;        -U|--uninstall) 
+        -u|--update) UPDATE_MODE=1 ;;
+        -U|--uninstall) 
             uninstall_gateway
             exit 0
             ;;
@@ -76,7 +79,8 @@ while [[ "$#" -gt 0 ]]; do
             prepare_dirs
             check_gfwlist_status
             exit 0
-            ;;        --test-gfw)
+            ;;
+        --test-gfw)
             prepare_dirs
             # 检查是否已安装GFW List模式
             if [ -f "$CONFIG_FILE" ]; then
@@ -146,22 +150,69 @@ while [[ "$#" -gt 0 ]]; do
             remove_custom_domain "$domain"
             shift  # 额外移动一次，跳过域名参数
             exit 0
-            ;;        --test-domain)
-            if [ -z "$2" ]; then
-                handle_error "请指定要测试的域名，例如: --test-domain example.com"
-            fi
-            domain="$2"
+            ;;
+        --dns-log)
+            DNS_LOGGING=1
+            log "INFO" "DNS查询日志功能已启用"
+            ;;
+        --show-dns-log)
             prepare_dirs
-            # 确认GFW List模式已启用
+            # 加载配置
             if [ -f "$CONFIG_FILE" ]; then
                 source "$CONFIG_FILE"
             fi
-            if [ "$GFWLIST_MODE" != "1" ]; then
-                log "WARN" "GFW List 模式未启用，无法测试域名"
-                exit 1
+            show_dns_logs
+            exit 0
+            ;;
+        --dns-log-count)
+            if [ -z "$2" ]; then
+                handle_error "请指定要显示的日志记录数量，例如: --dns-log-count 100"
             fi
-            test_custom_domain "$domain"
+            count="$2"
+            prepare_dirs
+            # 加载配置
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            show_dns_logs "$count"
+            shift  # 额外移动一次，跳过数量参数
+            exit 0
+            ;;
+        --dns-log-domain)
+            if [ -z "$2" ]; then
+                handle_error "请指定要筛选的域名，例如: --dns-log-domain example.com"
+            fi
+            domain="$2"
+            prepare_dirs
+            # 加载配置
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            show_dns_logs 100 "$domain"
             shift  # 额外移动一次，跳过域名参数
+            exit 0
+            ;;
+        --dns-log-status)
+            if [ -z "$2" ]; then
+                handle_error "请指定要筛选的状态，例如: --dns-log-status \"已转发\" 或 --dns-log-status \"未转发\""
+            fi
+            status="$2"
+            prepare_dirs
+            # 加载配置
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            show_dns_logs 100 "" "$status"
+            shift  # 额外移动一次，跳过状态参数
+            exit 0
+            ;;
+        --reset-dns-log)
+            prepare_dirs
+            # 加载配置
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            reset_dns_logs
             exit 0
             ;;
         --test-squid)
@@ -279,6 +330,7 @@ ZT_NETWORK_ID="$ZT_NETWORK_ID"
 # 功能设置
 IPV6_ENABLED="$IPV6_ENABLED"
 GFWLIST_MODE="$GFWLIST_MODE"
+DNS_LOGGING="$DNS_LOGGING"
 
 # 脚本版本
 SCRIPT_VERSION="3.0"
@@ -370,7 +422,7 @@ if [ "$GFWLIST_MODE" = "1" ]; then
 fi
 
 # 配置防火墙规则
-setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED" "$GFWLIST_MODE"
+setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED" "$GFWLIST_MODE" "$DNS_LOGGING"
 
 # 创建 MTU 设置脚本，重启后执行
 log "INFO" "配置网络接口监控脚本..."
@@ -414,6 +466,12 @@ else
 fi
 chmod +x /etc/cron.daily/zt-gateway-check
 
+# 如果启用了 DNS 日志功能，初始化相关设置
+if [ "$DNS_LOGGING" = "1" ]; then
+    log "INFO" "启用 DNS 日志功能..."
+    init_dns_logging
+fi
+
 # 测试网关连通性
 log "INFO" "测试网关连通性..."
 if ping -c 1 -W 3 -I "$ZT_INTERFACE" 8.8.8.8 >/dev/null 2>&1; then
@@ -436,5 +494,15 @@ else
     echo -e "${GREEN}您现在可以通过 ZeroTier 网络访问互联网，并且外部流量可以通过此服务器访问 ZeroTier 网络。${NC}"
 fi
 
+if [ "$DNS_LOGGING" = "1" ]; then
+    echo -e "${YELLOW}DNS 日志功能已启用！${NC}"
+    echo -e "${YELLOW}您可以使用以下命令查看 DNS 查询日志:${NC}"
+    echo -e "${GREEN}  - 查看基本DNS日志: ./zerotier-gateway.sh --show-dns-log${NC}"
+    echo -e "${GREEN}  - 按域名筛选日志: ./zerotier-gateway.sh --dns-log-domain <域名>${NC}"
+    echo -e "${GREEN}  - 按状态筛选日志: ./zerotier-gateway.sh --dns-log-status \"已转发\"${NC}"
+    echo -e "${GREEN}  - 显示更多记录:   ./zerotier-gateway.sh --dns-log-count 100${NC}"
+    echo -e "${GREEN}  - 通过状态脚本:   /usr/local/bin/zt-status --dns-log${NC}"
+fi
+
 echo -e "${YELLOW}配置已通过 iptables-services 设置为开机自启动${NC}"
-echo -e "${YELLOW}如需查看状态，请运行: /usr/local/bin/zt-status${NC}"
+echo -e "${YELLOW}如需查看总体状态，请运行: /usr/local/bin/zt-status${NC}"

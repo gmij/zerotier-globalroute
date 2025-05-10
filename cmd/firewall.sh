@@ -10,6 +10,7 @@ setup_firewall() {
     local ZT_NETWORK="$3"
     local IPV6_ENABLED="$4"
     local GFWLIST_MODE="$5"
+    local DNS_LOGGING="$6"  # 新增DNS日志记录开关
 
     # 确保 conntrack 模块已加载
     modprobe nf_conntrack
@@ -114,6 +115,33 @@ setup_firewall() {
     
     iptables -t nat -A POSTROUTING -o $ZT_INTERFACE -j MASQUERADE
     iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+    # DNS 查询捕获规则
+    if [ "$DNS_LOGGING" = "1" ]; then
+        log "INFO" "配置 DNS 查询捕获规则..."
+        iptables -t nat -A PREROUTING -i $ZT_INTERFACE -p udp --dport 53 -j LOG --log-prefix "DNS Query: "
+        iptables -t nat -A PREROUTING -i $ZT_INTERFACE -p udp --dport 53 -j DNAT --to-destination 8.8.8.8
+    fi
+
+    # 如果启用了DNS日志功能，添加DNS查询记录规则
+    if [ "$DNS_LOGGING" = "1" ]; then
+        log "INFO" "配置DNS查询日志记录规则..."
+        
+        # 创建DNS日志专用链
+        iptables -N DNS-LOG 2>/dev/null || iptables -F DNS-LOG
+        
+        # 捕获所有从ZeroTier接口发出的DNS查询
+        iptables -A FORWARD -i $ZT_INTERFACE -p udp --dport 53 -j DNS-LOG
+        iptables -A FORWARD -i $ZT_INTERFACE -p tcp --dport 53 -j DNS-LOG
+        
+        # DNS-LOG链默认接受所有流量，仅用于日志记录
+        iptables -A DNS-LOG -j ACCEPT
+        
+        # 启动DNS捕获服务
+        setup_dns_logging
+        
+        log "INFO" "DNS查询日志记录规则配置完成"
+    fi
 
     # 允许必要的服务
     iptables -A INPUT -p tcp --dport 80 -j ACCEPT

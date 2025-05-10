@@ -25,6 +25,7 @@ show_help() {
     echo "  -r, --routes   显示路由表"
     echo "  -l, --logs     显示最近日志"
     echo "  --test         测试连通性"
+    echo "  --dns-log      显示DNS查询日志统计"
     echo ""
 }
 
@@ -34,6 +35,7 @@ SHOW_CONN=0
 SHOW_TRAFFIC=0
 SHOW_ROUTES=0
 SHOW_LOGS=0
+SHOW_DNS_LOG=0
 TEST_CONN=0
 
 while [[ "$#" -gt 0 ]]; do
@@ -45,13 +47,14 @@ while [[ "$#" -gt 0 ]]; do
         -r|--routes) SHOW_ROUTES=1 ;;
         -l|--logs) SHOW_LOGS=1 ;;
         --test) TEST_CONN=1 ;;
+        --dns-log) SHOW_DNS_LOG=1 ;;
         *) echo "未知选项: $1"; show_help; exit 1 ;;
     esac
     shift
 done
 
 # 如果没有指定选项，则显示基本信息
-if [ $FULL_INFO -eq 0 ] && [ $SHOW_CONN -eq 0 ] && [ $SHOW_TRAFFIC -eq 0 ] && [ $SHOW_ROUTES -eq 0 ] && [ $SHOW_LOGS -eq 0 ] && [ $TEST_CONN -eq 0 ]; then
+if [ $FULL_INFO -eq 0 ] && [ $SHOW_CONN -eq 0 ] && [ $SHOW_TRAFFIC -eq 0 ] && [ $SHOW_ROUTES -eq 0 ] && [ $SHOW_LOGS -eq 0 ] && [ $TEST_CONN -eq 0 ] && [ $SHOW_DNS_LOG -eq 0 ]; then
     FULL_INFO=1
 fi
 
@@ -80,6 +83,21 @@ if [ $FULL_INFO -eq 1 ]; then
             fi
         else
             echo -e "GFW List 分流模式: ${RED}禁用${NC}"
+        fi
+        
+        # 显示 DNS 日志状态
+        if [ "$DNS_LOGGING" = "1" ]; then            echo -e "${YELLOW}DNS 查询日志: ${GREEN}启用${NC}"
+            if [ -f "$ZT_SCRIPT_DIR/logs/zt-dns-queries.log" ]; then
+                total_queries=$(wc -l < $ZT_SCRIPT_DIR/logs/zt-dns-queries.log)
+                forwarded_queries=$(grep "已转发" $ZT_SCRIPT_DIR/logs/zt-dns-queries.log | wc -l)
+                echo "总记录查询数: $total_queries"
+                echo "已转发查询数: $forwarded_queries"
+                echo "使用 'zt-status --dns-log' 查看详细日志"
+            else
+                echo "DNS 日志文件尚未创建"
+            fi
+        else
+            echo -e "DNS 查询日志: ${RED}禁用${NC}"
         fi
         
         echo "最后更新: $LAST_UPDATE"
@@ -220,4 +238,34 @@ if [ $SHOW_LOGS -eq 1 ]; then
     else
         echo "未找到日志文件"
     fi
+fi
+
+# 显示DNS日志
+if [ $SHOW_DNS_LOG -eq 1 ]; then
+    echo -e "${YELLOW}DNS查询日志统计:${NC}"
+      DNS_LOG_FILE="$ZT_SCRIPT_DIR/logs/zt-dns-queries.log"
+    
+    if [ ! -f "$DNS_LOG_FILE" ]; then
+        echo -e "${YELLOW}未找到DNS日志文件，请确保DNS日志功能已启用${NC}"
+        exit 1
+    fi
+    
+    total_queries=$(wc -l < "$DNS_LOG_FILE")
+    forwarded_queries=$(grep "已转发" "$DNS_LOG_FILE" | wc -l)
+    not_forwarded=$(grep "未转发" "$DNS_LOG_FILE" | wc -l)
+    
+    echo "总查询次数: $total_queries"
+    echo "已转发查询: $forwarded_queries ($(awk -v f=$forwarded_queries -v t=$total_queries 'BEGIN{printf "%.1f%%", f/t*100}'))"
+    echo "未转发查询: $not_forwarded ($(awk -v n=$not_forwarded -v t=$total_queries 'BEGIN{printf "%.1f%%", n/t*100}'))"
+    
+    # 显示TOP10域名
+    echo -e "\n${YELLOW}TOP 10 查询域名:${NC}"
+    awk '{print $3}' "$DNS_LOG_FILE" | sort | uniq -c | sort -rn | head -10
+    
+    # 显示TOP5已转发域名
+    echo -e "\n${YELLOW}TOP 5 已转发域名:${NC}"
+    grep "已转发" "$DNS_LOG_FILE" | awk '{print $3}' | sort | uniq -c | sort -rn | head -5
+    
+    echo -e "\n${YELLOW}查看完整日志:${NC} ./zerotier-gateway.sh --show-dns-log"
+    echo "查看更多选项: ./zerotier-gateway.sh --help"
 fi
