@@ -29,6 +29,7 @@ show_help() {
     echo "  -g, --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"
     echo "  -G, --update-gfwlist 更新 GFW List"
     echo "  -S, --gfwlist-status 显示 GFW List 状态"
+    echo "  --test-gfw          测试 GFW List 解析和 ipset 添加功能"
     echo ""
 }
 

@@ -126,11 +126,17 @@ setup_dnsmasq() {
         echo "ipset=/$domain/$GFWLIST_IPSET" >> "$SCRIPT_DNSMASQ_CONF"
     done < "$SCRIPT_GFWLIST_DOMAINS"
     
-    # 配置 dnsmasq 监听本地
+    # 配置 dnsmasq 监听本地和所有接口
     if [ -f "/etc/dnsmasq.conf" ]; then
-        if ! grep -q "^listen-address=" "/etc/dnsmasq.conf"; then
-            echo "listen-address=127.0.0.1" >> "/etc/dnsmasq.conf"
-        fi
+        # 备份原始配置
+        cp -f "/etc/dnsmasq.conf" "/etc/dnsmasq.conf.bak"
+        
+        # 移除旧的监听配置
+        sed -i '/^listen-address=/d' "/etc/dnsmasq.conf"
+        
+        # 添加监听所有接口，确保能处理所有DNS请求
+        echo "listen-address=127.0.0.1,0.0.0.0" >> "/etc/dnsmasq.conf"
+        echo "bind-interfaces" >> "/etc/dnsmasq.conf"
     fi
     
     # 创建配置文件软链接
@@ -174,13 +180,27 @@ setup_ipset() {
     ipset destroy "$GFWLIST_IPSET" 2>/dev/null
     ipset create "$GFWLIST_IPSET" hash:ip timeout 86400 || handle_error "创建 ipset 失败"
     
+    # 添加初始IP地址到ipset (默认DNS服务器)
+    log "INFO" "添加初始IP到ipset..."
+    ipset add "$GFWLIST_IPSET" 223.5.5.5 2>/dev/null || log "INFO" "IP 223.5.5.5 已存在"
+    ipset add "$GFWLIST_IPSET" 223.6.6.6 2>/dev/null || log "INFO" "IP 223.6.6.6 已存在"
+    ipset add "$GFWLIST_IPSET" 8.8.8.8 2>/dev/null || log "INFO" "IP 8.8.8.8 已存在"
+    ipset add "$GFWLIST_IPSET" 1.1.1.1 2>/dev/null || log "INFO" "IP 1.1.1.1 已存在"
+    
+    # 添加一些常见国外网站的IP，确保基本功能可用
+    log "INFO" "添加常见网站IP..."
+    # 尝试解析并添加Google的IP
+    for ip in $(dig +short google.com @223.5.5.5 2>/dev/null); do
+        ipset add "$GFWLIST_IPSET" $ip 2>/dev/null && log "INFO" "添加IP: $ip (Google)"
+    done
+    
     # 保存 ipset 配置
     mkdir -p /etc/sysconfig/
     echo "IPSET_SAVE_ON_STOP=yes" > /etc/sysconfig/ipset
     echo "IPSET_SAVE_ON_RESTART=yes" > /etc/sysconfig/ipset
     
     # 创建 ipset 服务启动时加载的配置
-    # 保存一个空的 ipset 列表，包括 gfwlist 的设置
+    # 保存包含初始IP的ipset列表
     ipset save > /etc/sysconfig/ipset.conf
     
     log "INFO" "IP 集合配置完成"
@@ -389,4 +409,92 @@ check_gfwlist_status() {
     echo -e "${YELLOW}提示:${NC}"
     echo -e "- 更新 GFW List: ./zerotier-gateway.sh --update-gfwlist"
     echo -e "- 查看详细流量: ./zerotier-gateway.sh --stats"
+}
+
+# 测试GFW List DNS解析和ipset添加功能
+test_gfwlist() {
+    echo -e "${GREEN}===== 测试 GFW List 功能 =====${NC}"
+    echo ""
+
+    # 检查ipset状态
+    echo -e "${YELLOW}检查 ipset 状态...${NC}"
+    if ! ipset list "$GFWLIST_IPSET" &>/dev/null; then
+        echo -e "${RED}错误: ipset '$GFWLIST_IPSET' 不存在${NC}"
+        return 1
+    fi
+
+    IP_COUNT=$(ipset list "$GFWLIST_IPSET" | grep -c "^[0-9]")
+    echo -e "当前 ipset 中的IP数量: ${GREEN}$IP_COUNT${NC}"
+
+    # 检查dnsmasq服务状态
+    echo -e "\n${YELLOW}检查 dnsmasq 服务状态...${NC}"
+    if systemctl is-active --quiet dnsmasq; then
+        echo -e "dnsmasq 服务: ${GREEN}运行中${NC}"
+    else
+        echo -e "dnsmasq 服务: ${RED}未运行${NC}"
+        echo -e "正在尝试启动 dnsmasq..."
+        systemctl start dnsmasq
+        if systemctl is-active --quiet dnsmasq; then
+            echo -e "dnsmasq 服务已启动: ${GREEN}成功${NC}"
+        else
+            echo -e "${RED}无法启动 dnsmasq 服务${NC}"
+            return 1
+        fi
+    fi
+
+    # 测试DNS解析
+    echo -e "\n${YELLOW}测试DNS解析 (使用本地DNS)...${NC}"
+    echo -e "解析 google.com..."
+    GOOGLE_IPS=$(dig +short google.com @127.0.0.1)
+    if [ -z "$GOOGLE_IPS" ]; then
+        echo -e "${RED}无法解析 google.com${NC}"
+    else
+        echo -e "${GREEN}成功解析 google.com: $GOOGLE_IPS${NC}"
+    fi
+
+    # 测试添加到ipset
+    echo -e "\n${YELLOW}检查解析的IP是否已添加到ipset...${NC}"
+    for ip in $GOOGLE_IPS; do
+        if ipset test "$GFWLIST_IPSET" $ip 2>/dev/null; then
+            echo -e "IP $ip ${GREEN}已存在${NC}于 ipset 中"
+        else
+            echo -e "IP $ip ${RED}不在${NC} ipset 中"
+        fi
+    done
+
+    # 测试其他常见网站
+    echo -e "\n${YELLOW}测试解析其他常见网站...${NC}"
+    for domain in www.youtube.com facebook.com twitter.com github.com; do
+        echo -e "解析 $domain..."
+        IPS=$(dig +short $domain @127.0.0.1)
+        if [ -z "$IPS" ]; then
+            echo -e "${RED}无法解析 $domain${NC}"
+        else
+            echo -e "${GREEN}成功解析 $domain${NC}"
+            for ip in $IPS; do
+                if ipset test "$GFWLIST_IPSET" $ip 2>/dev/null; then
+                    echo -e "- IP $ip ${GREEN}已添加${NC}到 ipset"
+                else
+                    echo -e "- IP $ip ${RED}未添加${NC}到 ipset"
+                fi
+            done
+        fi
+        echo ""
+    done
+
+    # 输出统计信息
+    echo -e "\n${YELLOW}测试完成${NC}"
+    NEW_IP_COUNT=$(ipset list "$GFWLIST_IPSET" | grep -c "^[0-9]")
+    echo -e "ipset IP数量: ${GREEN}$NEW_IP_COUNT${NC} (测试前: $IP_COUNT)"
+    if [ $NEW_IP_COUNT -gt $IP_COUNT ]; then
+        echo -e "${GREEN}测试成功: DNS查询已成功添加IP到ipset!${NC}"
+    else
+        echo -e "${YELLOW}注意: 测试过程中没有新IP添加到ipset${NC}"
+        echo -e "这可能是因为:"
+        echo -e "1. 域名已经被解析过，IP已经在ipset中"
+        echo -e "2. DNS解析没有正确将IP添加到ipset"
+        echo -e "3. 解析的域名不在GFW列表中"
+    fi
+    
+    return 0
 }

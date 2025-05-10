@@ -77,6 +77,27 @@ while [[ "$#" -gt 0 ]]; do
             check_gfwlist_status
             exit 0
             ;;
+        --test-gfw)
+            prepare_dirs
+            # 检查是否已安装GFW List模式
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+                if [ "$GFWLIST_MODE" != "1" ]; then
+                    log "WARN" "GFW List 模式未启用，先启用再测试"
+                    GFWLIST_MODE=1
+                    # 初始化GFW List模式
+                    init_gfwlist_mode
+                fi
+            else
+                log "WARN" "找不到配置文件，初始化GFW List模式"
+                GFWLIST_MODE=1
+                # 初始化GFW List模式
+                init_gfwlist_mode
+            fi
+            # 运行测试
+            test_gfwlist
+            exit $?
+            ;;
         *) handle_error "未知参数: $1" ;;
     esac
     shift
