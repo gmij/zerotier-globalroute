@@ -1,0 +1,18 @@
+#!/bin/bash
+#
+# ZeroTier 网关 ipset 初始化脚本
+#
+
+# 创建 gfwlist ipset
+if ! ipset list gfwlist &>/dev/null; then
+    echo "创建 gfwlist ipset..."
+    ipset create gfwlist hash:ip timeout 86400
+fi
+
+# 如果存在保存的ipset数据，则恢复它
+if [ -f "/etc/sysconfig/ipset.conf" ]; then
+    echo "从配置文件恢复 ipset 数据..."
+    ipset restore < /etc/sysconfig/ipset.conf
+fi
+
+exit 0

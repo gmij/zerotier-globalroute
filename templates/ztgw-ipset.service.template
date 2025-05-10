@@ -1,0 +1,12 @@
+[Unit]
+Description=ZeroTier Gateway ipset initialization
+Before=iptables.service ip6tables.service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ipset-init.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -49,11 +49,11 @@ while [[ "$#" -gt 0 ]]; do
             ;;
         -d|--debug) DEBUG_MODE=1 ;;
         -r|--restart) RESTART_MODE=1 ;;
-        -u|--update) UPDATE_MODE=1 ;;
-        -U|--uninstall) 
+        -u|--update) UPDATE_MODE=1 ;;        -U|--uninstall) 
             uninstall_gateway
             exit 0
-            ;;        --ipv6) IPV6_ENABLED=1 ;;
+            ;;
+        --ipv6) IPV6_ENABLED=1 ;;
         --stats) 
             prepare_dirs
             show_traffic_stats
@@ -246,6 +246,34 @@ ip link set $ZT_INTERFACE mtu $ZT_MTU || handle_error "调整 MTU 失败"
 if [ "$GFWLIST_MODE" = "1" ]; then
     log "INFO" "启用 GFW List 分流模式..."
     init_gfwlist_mode
+fi
+
+# 如果启用了 GFW List 模式，安装 ipset 初始化服务
+if [ "$GFWLIST_MODE" = "1" ]; then
+    log "INFO" "创建 ipset 初始化脚本和服务..."
+    
+    # 创建 ipset 初始化脚本
+    IPSET_INIT_TEMPLATE="$SCRIPT_DIR/templates/ipset-init.sh.template"
+    if [ -f "$IPSET_INIT_TEMPLATE" ]; then
+        cat "$IPSET_INIT_TEMPLATE" > /usr/local/bin/ipset-init.sh
+        chmod +x /usr/local/bin/ipset-init.sh
+    else
+        handle_error "找不到 ipset 初始化脚本模板: $IPSET_INIT_TEMPLATE"
+    fi
+    
+    # 创建 systemd 服务单元
+    IPSET_SERVICE_TEMPLATE="$SCRIPT_DIR/templates/ztgw-ipset.service.template"
+    if [ -f "$IPSET_SERVICE_TEMPLATE" ]; then
+        cat "$IPSET_SERVICE_TEMPLATE" > /etc/systemd/system/ztgw-ipset.service
+        systemctl daemon-reload
+        systemctl enable ztgw-ipset.service
+        log "INFO" "已启用 ipset 初始化服务"
+    else
+        handle_error "找不到 ipset 服务模板: $IPSET_SERVICE_TEMPLATE"
+    fi
+    
+    # 立即运行初始化脚本
+    /usr/local/bin/ipset-init.sh
 fi
 
 # 配置防火墙规则

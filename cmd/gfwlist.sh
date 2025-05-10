@@ -180,6 +180,7 @@ setup_ipset() {
     echo "IPSET_SAVE_ON_RESTART=yes" > /etc/sysconfig/ipset
     
     # 创建 ipset 服务启动时加载的配置
+    # 保存一个空的 ipset 列表，包括 gfwlist 的设置
     ipset save > /etc/sysconfig/ipset.conf
     
     log "INFO" "IP 集合配置完成"
