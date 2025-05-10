@@ -162,8 +162,8 @@ setup_firewall() {
         iptables -t mangle -A OUTPUT -m mark ! --mark 0 -j CONNMARK --save-mark
         iptables -t mangle -A PREROUTING -m mark ! --mark 0 -j CONNMARK --save-mark
         
-        # 6. 添加策略路由规则
-        ip rule add fwmark 2 table squid
+        # 6. 添加策略路由规则 - 确保优先级明确
+        ip rule add fwmark 2 table squid prio 32763
         
         log "INFO" "Squid 代理流量规则配置完成"
     else
@@ -303,7 +303,7 @@ check_squid_service() {
     
     # 检查 Docker 是否在运行，以及是否存在映射到 3128 端口的容器
     if command -v docker &>/dev/null && systemctl is-active --quiet docker; then
-        if docker ps 2>/dev/null | grep -E ".*:[0-9]+->3128/tcp" > /dev/null 2>&1; then
+        if docker ps 2>/dev/null | grep -F ":3128" > /dev/null 2>&1; then
             log "INFO" "检测到 Docker 容器中的 Squid 服务 (端口映射)"
             squid_running=1
         fi

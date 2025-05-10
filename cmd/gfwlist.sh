@@ -942,10 +942,10 @@ test_squid_proxy() {
     if command -v docker &>/dev/null && systemctl is-active --quiet docker; then
         echo -e "Docker 状态: ${GREEN}运行中${NC}"
         echo -e "搜索映射到 3128 端口的 Docker 容器:"
-        docker ps | grep -i "->3128" || echo "未找到映射到 3128 端口的容器"
+        docker ps | grep -E ":[0-9]+->3128/tcp" || echo "未找到映射到 3128 端口的容器"
         
         # 如果有容器，显示详细信息
-        local container_id=$(docker ps | grep -i "->3128" | awk '{print $1}')
+        local container_id=$(docker ps | grep -E ":[0-9]+->3128/tcp" | awk '{print $1}')
         if [ -n "$container_id" ]; then
             echo -e "\n${GREEN}检测到 Squid 容器${NC} (ID: $container_id)"
             echo -e "容器网络配置:"

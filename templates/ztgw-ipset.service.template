@@ -1,7 +1,10 @@
 [Unit]
 Description=ZeroTier Gateway ipset initialization
-Before=iptables.service ip6tables.service
-After=network.target
+# 移除对网络目标的依赖，避免循环
+DefaultDependencies=no
+Conflicts=shutdown.target
+Before=network-pre.target iptables.service ip6tables.service
+Wants=network-pre.target
 
 [Service]
 Type=oneshot
