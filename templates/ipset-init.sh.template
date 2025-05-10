@@ -7,6 +7,12 @@
 if ! ipset list gfwlist &>/dev/null; then
     echo "创建 gfwlist ipset..."
     ipset create gfwlist hash:ip timeout 86400
+      # 添加DNS以确保至少有一个IP在集合中
+    # 这样即使GFW列表为空也能有基本连接
+    ipset add gfwlist 223.5.5.5  # 阿里DNS主
+    ipset add gfwlist 223.6.6.6  # 阿里DNS备用
+    ipset add gfwlist 8.8.8.8    # Google DNS (备用)
+    ipset add gfwlist 1.1.1.1    # Cloudflare DNS (备用)
 fi
 
 # 如果存在保存的ipset数据，则恢复它

@@ -104,12 +104,12 @@ setup_dnsmasq() {
     echo "# 自动生成，请勿手动修改" >> "$SCRIPT_DNSMASQ_CONF"
     echo "" >> "$SCRIPT_DNSMASQ_CONF"
     
-    # 配置上游 DNS 服务器（使用 Google 和 Cloudflare 的 DNS）
+    # 配置上游 DNS 服务器（使用阿里DNS作为主要DNS，Google和Cloudflare为备用）
     echo "# 上游 DNS 服务器配置" >> "$SCRIPT_DNSMASQ_CONF"
-    echo "server=8.8.8.8" >> "$SCRIPT_DNSMASQ_CONF"
-    echo "server=8.8.4.4" >> "$SCRIPT_DNSMASQ_CONF"
-    echo "server=1.1.1.1" >> "$SCRIPT_DNSMASQ_CONF"
-    echo "server=1.0.0.1" >> "$SCRIPT_DNSMASQ_CONF"
+    echo "server=223.5.5.5" >> "$SCRIPT_DNSMASQ_CONF"  # 阿里DNS主
+    echo "server=223.6.6.6" >> "$SCRIPT_DNSMASQ_CONF"  # 阿里DNS备用
+    echo "server=8.8.8.8" >> "$SCRIPT_DNSMASQ_CONF"    # Google DNS (备用)
+    echo "server=1.1.1.1" >> "$SCRIPT_DNSMASQ_CONF"    # Cloudflare DNS (备用)
     echo "" >> "$SCRIPT_DNSMASQ_CONF"
     
     # 配置基本参数
@@ -257,10 +257,10 @@ if curl -s -o "\$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_URL" || wget -q -O "\$SCRIPT_GF
     
     # 上游 DNS 配置
     echo "# 上游 DNS 服务器配置" >> "\$SCRIPT_DNSMASQ_CONF"
-    echo "server=8.8.8.8" >> "\$SCRIPT_DNSMASQ_CONF"
-    echo "server=8.8.4.4" >> "\$SCRIPT_DNSMASQ_CONF"
-    echo "server=1.1.1.1" >> "\$SCRIPT_DNSMASQ_CONF"
-    echo "server=1.0.0.1" >> "\$SCRIPT_DNSMASQ_CONF"
+    echo "server=223.5.5.5" >> "\$SCRIPT_DNSMASQ_CONF"  # 阿里DNS主
+    echo "server=223.6.6.6" >> "\$SCRIPT_DNSMASQ_CONF"  # 阿里DNS备用
+    echo "server=8.8.8.8" >> "\$SCRIPT_DNSMASQ_CONF"    # Google DNS (备用)
+    echo "server=1.1.1.1" >> "\$SCRIPT_DNSMASQ_CONF"    # Cloudflare DNS (备用)
     echo "" >> "\$SCRIPT_DNSMASQ_CONF"
     
     # 基本配置

@@ -62,9 +62,18 @@ setup_firewall() {
         if ! ipset list gfwlist &>/dev/null; then
             log "INFO" "创建 gfwlist ipset..."
             ipset create gfwlist hash:ip timeout 86400
+            
+            # 添加DNS以确保至少有一个IP在集合中
+            ipset add gfwlist 223.5.5.5  # 阿里DNS主
+            ipset add gfwlist 223.6.6.6  # 阿里DNS备用
+            ipset add gfwlist 8.8.8.8    # Google DNS (备用)
+            ipset add gfwlist 1.1.1.1    # Cloudflare DNS (备用)
         fi
         
-        # 对 GFW List 中的 IP 使用 ZeroTier 路由
+        # 添加基本NAT规则，确保基本连接可用
+        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -o $WAN_INTERFACE -j MASQUERADE
+        
+        # 然后添加 GFW List 特定的规则
         iptables -t nat -A POSTROUTING -s $ZT_NETWORK -m set --match-set gfwlist dst -o $WAN_INTERFACE -j MASQUERADE
         
         # 添加 mark 规则，用于路由选择
