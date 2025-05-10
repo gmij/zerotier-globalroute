@@ -40,6 +40,8 @@ show_help() {
     echo "代理服务:"
     echo "  端口 3128 (Squid)   所有通过端口 3128 的流量将由 Squid 代理决定路由"
     echo "                      这些流量不受 GFW List 分流规则影响"
+    echo "                      支持原生 Squid 或 Docker 容器中的 Squid"
+    echo "  --test-squid        测试 Squid 代理配置和连接状态"
     echo ""
 }
 

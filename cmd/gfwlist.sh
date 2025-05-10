@@ -853,3 +853,143 @@ test_custom_domain() {
     
     return 0
 }
+
+# 测试 Squid 代理功能
+test_squid_proxy() {
+    echo -e "${GREEN}===== 测试 Squid 代理 (端口 3128) =====${NC}"
+    echo ""
+
+    # 检查 Squid 服务是否运行
+    local squid_running=0
+    if systemctl is-active --quiet squid; then
+        echo -e "Squid 服务状态: ${GREEN}运行中${NC} (squid)"
+        squid_running=1
+    elif systemctl is-active --quiet squid3; then
+        echo -e "Squid 服务状态: ${GREEN}运行中${NC} (squid3)"
+        squid_running=1
+    else
+        echo -e "Squid 服务状态: ${RED}未运行${NC}"
+    fi
+
+    # 检查 3128 端口是否开放
+    echo -e "\n${YELLOW}检查端口 3128 状态...${NC}"
+    if netstat -tuln | grep -q ':3128 '; then
+        echo -e "端口 3128: ${GREEN}已开放${NC}"
+        local pid=$(netstat -tuln | grep ':3128 ' | awk '{print $7}' | cut -d'/' -f1)
+        if [ -n "$pid" ]; then
+            local pname=$(ps -p $pid -o comm=)
+            echo -e "端口被进程占用: $pname (PID: $pid)"
+        fi
+    else
+        echo -e "端口 3128: ${RED}未开放${NC}"
+        echo -e "请确认 Squid 配置正确并监听在端口 3128"
+    fi
+
+    # 检查防火墙规则
+    echo -e "\n${YELLOW}检查防火墙规则...${NC}"
+    echo -e "INPUT 链中的 Squid 规则:"
+    iptables -L INPUT -n | grep -i "dpt:3128" || echo "未找到针对端口 3128 的 INPUT 规则"
+    
+    echo -e "\nPREROUTING 链中的 Squid 规则:"
+    iptables -t nat -L PREROUTING -n | grep -i "dpt:3128" || echo "未找到针对端口 3128 的 NAT PREROUTING 规则"
+    
+    echo -e "\nPOSTROUTING 链中的 Squid 规则:"
+    iptables -t nat -L POSTROUTING -n | grep -i "dpt:3128\|squid" || echo "未找到针对端口 3128 的 NAT POSTROUTING 规则"
+    
+    echo -e "\nMANGLE 规则中的 Squid 相关规则:"
+    iptables -t mangle -L -n | grep -i "dpt:3128\|spt:3128\|mark match 0x2" || echo "未找到 Squid 相关的 MANGLE 规则"
+    
+    echo -e "\nCONNMARK 规则检查:"
+    iptables -t mangle -L -n | grep -i "CONNMARK" || echo "未找到 CONNMARK 相关规则"
+    
+    # 检查策略路由规则
+    echo -e "\n${YELLOW}检查策略路由规则...${NC}"
+    echo -e "策略路由表配置:"
+    grep "squid" /etc/iproute2/rt_tables || echo "未找到 Squid 的路由表配置"
+    
+    echo -e "\n路由策略规则:"
+    ip rule list | grep "fwmark 2" || echo "未找到 Squid 的策略路由规则"
+    
+    echo -e "\nSquid 路由表内容:"
+    ip route show table squid || echo "Squid 路由表不存在或为空"
+    
+    # 如果 Squid 运行中，尝试检查配置
+    if [ "$squid_running" = "1" ]; then
+        echo -e "\n${YELLOW}检查 Squid 配置...${NC}"
+        local squid_cmd="squid"
+        if command -v squid3 &> /dev/null; then
+            squid_cmd="squid3"
+        fi
+        
+        # 检查 Squid 监听端口
+        echo -e "Squid 监听端口:"
+        $squid_cmd -v 2>/dev/null | grep -i "listening" || echo "无法获取 Squid 监听信息"
+        
+        # 检查 Squid 配置文件
+        if [ -f "/etc/squid/squid.conf" ]; then
+            echo -e "\nSquid 配置文件检查 (/etc/squid/squid.conf):"
+            grep -i "^http_port" /etc/squid/squid.conf || echo "未找到 http_port 配置"
+        elif [ -f "/etc/squid3/squid.conf" ]; then
+            echo -e "\nSquid 配置文件检查 (/etc/squid3/squid.conf):"
+            grep -i "^http_port" /etc/squid3/squid.conf || echo "未找到 http_port 配置"
+        else
+            echo -e "\n未找到 Squid 配置文件"
+        fi
+    fi
+    
+    # 检查 Docker 容器中的 Squid
+    echo -e "\n${YELLOW}检查 Docker 容器中的 Squid...${NC}"
+    if command -v docker &>/dev/null && systemctl is-active --quiet docker; then
+        echo -e "Docker 状态: ${GREEN}运行中${NC}"
+        echo -e "搜索映射到 3128 端口的 Docker 容器:"
+        docker ps | grep -i "->3128" || echo "未找到映射到 3128 端口的容器"
+        
+        # 如果有容器，显示详细信息
+        local container_id=$(docker ps | grep -i "->3128" | awk '{print $1}')
+        if [ -n "$container_id" ]; then
+            echo -e "\n${GREEN}检测到 Squid 容器${NC} (ID: $container_id)"
+            echo -e "容器网络配置:"
+            docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $container_id
+            echo -e "端口映射:"
+            docker port $container_id
+        fi
+    else
+        echo -e "Docker 状态: ${RED}未运行或未安装${NC}"
+    fi
+
+    echo -e "\n${YELLOW}测试与外部的连接...${NC}"
+    echo -e "通过 Squid 代理测试连接到 google.com:"
+    if command -v curl &> /dev/null; then
+        curl -I -x 127.0.0.1:3128 -m 5 http://www.google.com 2>/dev/null && \
+            echo -e "${GREEN}成功通过 Squid 代理连接到 google.com${NC}" || \
+            echo -e "${RED}无法通过 Squid 代理连接到 google.com${NC}"
+    else
+        echo -e "未安装 curl，无法进行连接测试"
+    fi
+    
+    # 测试防火墙标记是否生效
+    echo -e "\n${YELLOW}测试防火墙标记规则...${NC}"
+    echo -e "发送测试连接到 Squid 端口，检查标记应用:"
+    if command -v curl &> /dev/null; then
+        # 启动后台流量监控
+        echo "启动流量监控..."
+        timeout 3 iptables -t mangle -L PREROUTING -v -n -x > /dev/null &
+        # 发送测试连接
+        curl -I -s -x 127.0.0.1:3128 -m 2 http://www.baidu.com >/dev/null
+        sleep 1
+        # 检查标记
+        iptables -t mangle -L PREROUTING -v -n | grep "mark match 0x2" | grep -q "dpt:3128" && \
+            echo -e "${GREEN}Squid 流量标记规则正常工作${NC}" || \
+            echo -e "${RED}Squid 流量标记规则可能未正确应用${NC}"
+    fi
+    
+    echo -e "\n${YELLOW}建议:${NC}"
+    echo -e "1. 确保 Squid 服务已启动且监听在端口 3128"
+    echo -e "2. 检查 Squid 配置是否正确，特别是 http_port 设置"
+    echo -e "3. 确认防火墙规则是否正确设置"
+    echo -e "4. 如果使用 Docker 容器，确保端口映射正确 (3128:3128)"
+    echo -e "5. 可以尝试重启 Squid 服务或容器"
+    echo -e "5. 查看 Squid 日志以获取更多信息: cat /var/log/squid/access.log"
+    
+    return 0
+}

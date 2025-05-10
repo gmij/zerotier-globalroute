@@ -146,8 +146,7 @@ while [[ "$#" -gt 0 ]]; do
             remove_custom_domain "$domain"
             shift  # 额外移动一次，跳过域名参数
             exit 0
-            ;;
-        --test-domain)
+            ;;        --test-domain)
             if [ -z "$2" ]; then
                 handle_error "请指定要测试的域名，例如: --test-domain example.com"
             fi
@@ -163,6 +162,12 @@ while [[ "$#" -gt 0 ]]; do
             fi
             test_custom_domain "$domain"
             shift  # 额外移动一次，跳过域名参数
+            exit 0
+            ;;
+        --test-squid)
+            prepare_dirs
+            # 这个功能不需要 GFW List 模式启用也能测试
+            test_squid_proxy
             exit 0
             ;;
         *) handle_error "未知参数: $1" ;;
