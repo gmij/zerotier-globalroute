@@ -18,7 +18,18 @@ fi
 # 如果存在保存的ipset数据，则恢复它
 if [ -f "/etc/sysconfig/ipset.conf" ]; then
     echo "从配置文件恢复 ipset 数据..."
-    ipset restore < /etc/sysconfig/ipset.conf
+    # 使用 -exist 选项，这样如果集合已存在，将会更新而不是尝试重新创建
+    ipset restore -exist < /etc/sysconfig/ipset.conf || {
+        echo "ipset restore 失败，尝试清除现有 ipset 后重新恢复..."
+        # 如果恢复失败，尝试先保存当前 ipset，然后清除，再恢复
+        ipset save > /tmp/ipset_backup.conf
+        ipset flush
+        ipset restore < /etc/sysconfig/ipset.conf || {
+            echo "恢复仍然失败，尝试从临时备份恢复..."
+            ipset restore < /tmp/ipset_backup.conf
+        }
+        rm -f /tmp/ipset_backup.conf
+    }
 fi
 
 exit 0
