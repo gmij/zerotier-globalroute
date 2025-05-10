@@ -26,9 +26,9 @@ show_help() {
     echo "  --uninstall      卸载网关配置"
     echo ""
     echo "GFW List 选项:"
-    echo "  --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"
-    echo "  --update-gfwlist 更新 GFW List"
-    echo "  --gfwlist-status 显示 GFW List 状态"
+    echo "  -g, --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"
+    echo "  -G, --update-gfwlist 更新 GFW List"
+    echo "  -S, --gfwlist-status 显示 GFW List 状态"
     echo ""
 }
 

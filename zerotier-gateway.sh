@@ -53,8 +53,8 @@ while [[ "$#" -gt 0 ]]; do
         -U|--uninstall) 
             uninstall_gateway
             exit 0
-            ;;
-        --ipv6) IPV6_ENABLED=1 ;;        --stats) 
+            ;;        --ipv6) IPV6_ENABLED=1 ;;
+        --stats) 
             prepare_dirs
             show_traffic_stats
             exit 0
@@ -64,15 +64,15 @@ while [[ "$#" -gt 0 ]]; do
             test_gateway
             exit $?
             ;;
-        --gfwlist) 
+        -g|--gfwlist) 
             GFWLIST_MODE=1 
             ;;
-        --update-gfwlist)
+        -G|--update-gfwlist)
             prepare_dirs
             update_gfwlist
             exit 0
             ;;
-        --gfwlist-status)
+        -S|--gfwlist-status)
             prepare_dirs
             check_gfwlist_status
             exit 0
