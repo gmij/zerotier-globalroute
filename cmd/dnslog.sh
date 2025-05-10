@@ -1,16 +1,17 @@
 #!/bin/bash
 #
-# ZeroTier 网关 DNS 日志处理模块
+# ZeroTier 网关 DNS 日志处理模块 (基于 dnsmasq 日志)
 #
 
 # DNS日志文件路径
 DNS_LOG_FILE="${SCRIPT_DIR}/logs/zt-dns-queries.log"
+DNSMASQ_LOG_FILE="${SCRIPT_DIR}/logs/dnsmasq.log"
 DNS_LOG_MAX_SIZE=10485760 # 10MB
 DNS_LOG_MAX_DAYS=7 # 保留7天日志
 
 # 初始化DNS日志功能
 init_dns_logging() {
-    log "INFO" "初始化DNS日志功能..."
+    log "INFO" "初始化基于dnsmasq的DNS日志功能..."
     
     # 确保logs目录存在
     mkdir -p "${SCRIPT_DIR}/logs"
@@ -21,70 +22,33 @@ init_dns_logging() {
         chmod 644 "$DNS_LOG_FILE"
     fi
     
+    # 创建dnsmasq日志文件（如果不存在）
+    if [ ! -f "$DNSMASQ_LOG_FILE" ]; then
+        touch "$DNSMASQ_LOG_FILE"
+        chmod 644 "$DNSMASQ_LOG_FILE"
+    fi
+    
     # 添加自动轮转日志的cron任务
     if ! crontab -l | grep -q "zt-dns-queries"; then
-        (crontab -l 2>/dev/null; echo "0 0 * * * /bin/find ${SCRIPT_DIR}/logs/ -name 'zt-dns-queries.log.*' -mtime +$DNS_LOG_MAX_DAYS -delete") | crontab -
-        log "INFO" "已设置DNS日志轮转任务"
+        # 每天轮转日志文件并删除旧日志
+        (crontab -l 2>/dev/null; echo "0 0 * * * if [ -f \"${SCRIPT_DIR}/logs/zt-dns-queries.log\" ] && [ \$(stat -c%s \"${SCRIPT_DIR}/logs/zt-dns-queries.log\") -gt 1048576 ]; then mv \"${SCRIPT_DIR}/logs/zt-dns-queries.log\" \"${SCRIPT_DIR}/logs/zt-dns-queries.log.\$(date +\\%Y\\%m\\%d)\"; fi") | crontab -
+        (crontab -l 2>/dev/null; echo "0 0 * * * if [ -f \"${SCRIPT_DIR}/logs/dnsmasq.log\" ] && [ \$(stat -c%s \"${SCRIPT_DIR}/logs/dnsmasq.log\") -gt 1048576 ]; then mv \"${SCRIPT_DIR}/logs/dnsmasq.log\" \"${SCRIPT_DIR}/logs/dnsmasq.log.\$(date +\\%Y\\%m\\%d)\"; fi") | crontab -
+        (crontab -l 2>/dev/null; echo "10 0 * * * /bin/find ${SCRIPT_DIR}/logs/ -name 'zt-dns-queries.log.*' -mtime +$DNS_LOG_MAX_DAYS -delete") | crontab -
+        (crontab -l 2>/dev/null; echo "10 0 * * * /bin/find ${SCRIPT_DIR}/logs/ -name 'dnsmasq.log.*' -mtime +$DNS_LOG_MAX_DAYS -delete") | crontab -
+        log "INFO" "已设置每日日志轮转和清理任务"
     fi
     
-    log "INFO" "DNS日志功能已初始化"
-    return 0
-}
-
-# 记录DNS查询
-log_dns_query() {
-    local query_time="$1"
-    local source_ip="$2"
-    local domain="$3"
-    local query_type="$4"
-    local forwarded="$5" # 1=已转发, 0=未转发
-    
-    local forwarded_text
-    if [ "$forwarded" = "1" ]; then
-        forwarded_text="已转发"
-    else
-        forwarded_text="未转发"
-    fi
-    
-    echo "[$query_time] $source_ip $domain $query_type $forwarded_text" >> "$DNS_LOG_FILE"
-    
-    # 检查日志大小并轮转
-    if [ -f "$DNS_LOG_FILE" ]; then
-        local log_size=$(stat -c%s "$DNS_LOG_FILE" 2>/dev/null || echo 0)
-        if [ "$log_size" -gt "$DNS_LOG_MAX_SIZE" ]; then
-            log "INFO" "DNS日志文件达到最大大小，进行轮转..."
-            local timestamp=$(date +"%Y%m%d-%H%M%S")
-            mv "$DNS_LOG_FILE" "${DNS_LOG_FILE}.${timestamp}"
-            touch "$DNS_LOG_FILE"
-            chmod 644 "$DNS_LOG_FILE"
-        fi
-    fi
-}
-
-# 设置DNS日志记录
-setup_dns_logging() {
-    log "INFO" "设置DNS日志记录..."
-    
-    # 确保已安装必要工具
-    if ! command -v tcpdump &>/dev/null; then
-        log "INFO" "安装 tcpdump..."
-        yum install -y tcpdump || {
-            log "ERROR" "安装 tcpdump 失败"
-            return 1
-        }
-    fi
-    
-    # 创建DNS日志记录脚本
-    local dns_capture_script="/usr/local/bin/zt-dns-capture.sh"
-    cat > "$dns_capture_script" << 'EOF'
+    # 创建一个脚本来处理dnsmasq日志并转换到我们的格式
+    local dns_processor_script="/usr/local/bin/zt-dns-processor.sh"
+    cat > "$dns_processor_script" << 'EOF'
 #!/bin/bash
 
-ZT_INTERFACE="$1"
+DNSMASQ_LOG="$1"
 DNS_LOG_FILE="$2"
 SCRIPT_DIR="$3"
 
-if [ -z "$ZT_INTERFACE" ] || [ -z "$DNS_LOG_FILE" ] || [ -z "$SCRIPT_DIR" ]; then
-    echo "用法: $0 <ZeroTier接口> <日志文件路径> <脚本目录>"
+if [ -z "$DNSMASQ_LOG" ] || [ -z "$DNS_LOG_FILE" ] || [ -z "$SCRIPT_DIR" ]; then
+    echo "用法: $0 <dnsmasq日志文件> <输出日志文件> <脚本目录>"
     exit 1
 fi
 
@@ -92,93 +56,106 @@ fi
 mkdir -p "$SCRIPT_DIR/logs"
 touch "$DNS_LOG_FILE"
 
-# 使用tcpdump捕获DNS查询
-tcpdump -i "$ZT_INTERFACE" -l -nn 'udp port 53 or tcp port 53' 2>/dev/null | while read -r line; do
-    # 提取时间戳
-    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-    
-    # 尝试提取DNS查询信息
-    if echo "$line" | grep -q "A?" || echo "$line" | grep -q "AAAA?"; then
-        # 提取源IP
-        source_ip=$(echo "$line" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        if [ -z "$source_ip" ]; then
-            source_ip=$(echo "$line" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+# 使用tail -f监控dnsmasq日志文件
+tail -F -n0 "$DNSMASQ_LOG" 2>/dev/null | while read -r line; do
+    # 过滤只处理DNS查询记录
+    if echo "$line" | grep -q "query\[" || echo "$line" | grep -q "forwarded" || echo "$line" | grep -q "cached"; then
+        # 提取时间戳 (dnsmasq格式: Mon Jan  1 12:34:56 2023)
+        timestamp=$(echo "$line" | awk '{print $1, $2, $3, $4, $5}')
+        # 转换成我们的格式 YYYY-MM-DD HH:MM:SS
+        formatted_time=$(date -d "$timestamp" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        if [ -z "$formatted_time" ]; then
+            formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
         fi
         
-        # 提取域名和查询类型
-        domain_info=$(echo "$line" | grep -o -E 'A\? [^ ]+|AAAA\? [^ ]+' | head -1)
-        if [ -n "$domain_info" ]; then
-            query_type=$(echo "$domain_info" | cut -d' ' -f1 | sed 's/?//')
-            domain=$(echo "$domain_info" | cut -d' ' -f2 | sed 's/\.$//')
+        # 提取DNS查询信息
+        if echo "$line" | grep -q "query\["; then
+            # 提取域名、查询类型和源IP
+            domain=$(echo "$line" | sed -n 's/.*query\[[A-Z]*\] \([^ ]*\).*/\1/p' | sed 's/\.$//')
+            query_type=$(echo "$line" | sed -n 's/.*query\[\([A-Z]*\)\].*/\1/p')
+            source_ip=$(echo "$line" | grep -o -E 'from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | cut -d' ' -f2)
             
-            # 检查该域名是否需要转发
-            forwarded=0
-            forwarded_text="未转发"
-            
-            # 首先检查是否是自定义域名列表中的域名
-            if [ -f "$SCRIPT_DIR/config/custom_domains.txt" ] && grep -q "$domain" "$SCRIPT_DIR/config/custom_domains.txt"; then
-                forwarded=1
-                forwarded_text="已转发(自定义域名)"
-            # 然后检查是否在GFW列表中
-            elif [ -f "$SCRIPT_DIR/config/gfwlist_domains.txt" ] && grep -q "$domain" "$SCRIPT_DIR/config/gfwlist_domains.txt"; then
-                forwarded=1
-                forwarded_text="已转发(GFW列表)"
-            # 最后检查通过IP判断
-            elif command -v ipset &>/dev/null && ipset list gfwlist &>/dev/null; then
-                # 尝试解析域名获取IP
-                ip=$(dig +short "$domain" 2>/dev/null | head -1)
-                if [ -n "$ip" ] && ipset test gfwlist "$ip" 2>/dev/null; then
-                    forwarded=1
-                    forwarded_text="已转发(IP匹配)"
-                fi
-            fi
-            
-            # 检查域名是否是通配符匹配
-            if [ "$forwarded" = "0" ] && [ -f "$SCRIPT_DIR/config/custom_domains.txt" ]; then
-                # 提取根域名
-                root_domain=$(echo "$domain" | awk -F. '{if (NF>1) {print $(NF-1)"."$NF} else {print $NF}}')
-                parent_domain=$(echo "$domain" | sed "s/^[^.]*\.//")
+            if [ -n "$domain" ] && [ -n "$source_ip" ]; then
+                # 确定该域名是否需要转发
+                forwarded=0
+                forwarded_text="未转发"
                 
-                # 检查通配符匹配
-                if grep -q "\*\.$root_domain" "$SCRIPT_DIR/config/custom_domains.txt" || 
-                   grep -q "\*\.$parent_domain" "$SCRIPT_DIR/config/custom_domains.txt"; then
+                # 检查是否是自定义域名列表中的域名
+                if [ -f "$SCRIPT_DIR/config/custom_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/custom_domains.txt"; then
                     forwarded=1
-                    forwarded_text="已转发(通配符匹配)"
+                    forwarded_text="已转发(自定义域名)"
+                # 然后检查是否在GFW列表中
+                elif [ -f "$SCRIPT_DIR/config/gfwlist_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/gfwlist_domains.txt"; then
+                    forwarded=1
+                    forwarded_text="已转发(GFW列表)"
+                # 检查域名是否是通配符匹配
+                elif [ -f "$SCRIPT_DIR/config/custom_domains.txt" ]; then
+                    # 提取根域名
+                    root_domain=$(echo "$domain" | awk -F. '{if (NF>1) {print $(NF-1)"."$NF} else {print $NF}}')
+                    parent_domain=$(echo "$domain" | sed "s/^[^.]*\.//")
+                    
+                    # 检查通配符匹配
+                    if grep -q "\*\.$root_domain" "$SCRIPT_DIR/config/custom_domains.txt" || 
+                       grep -q "\*\.$parent_domain" "$SCRIPT_DIR/config/custom_domains.txt"; then
+                        forwarded=1
+                        forwarded_text="已转发(通配符匹配)"
+                    fi
+                # 最后检查通过IP判断
+                elif command -v ipset &>/dev/null && ipset list gfwlist &>/dev/null; then
+                    # 尝试解析域名获取IP
+                    ip=$(dig +short "$domain" 2>/dev/null | head -1)
+                    if [ -n "$ip" ] && ipset test gfwlist "$ip" 2>/dev/null; then
+                        forwarded=1
+                        forwarded_text="已转发(IP匹配)"
+                    fi
                 fi
+                
+                # 记录查询
+                echo "[$formatted_time] $source_ip $domain $query_type $forwarded_text" >> "$DNS_LOG_FILE"
             fi
-            
-            # 记录查询
-            echo "[$timestamp] $source_ip $domain $query_type $forwarded_text" >> "$DNS_LOG_FILE"
         fi
     fi
 done
 EOF
 
-    chmod +x "$dns_capture_script"
+    chmod +x "$dns_processor_script"
     
     # 创建systemd服务
-    local service_file="/etc/systemd/system/zt-dns-logger.service"
+    local service_file="/etc/systemd/system/zt-dns-processor.service"
     cat > "$service_file" << EOF
 [Unit]
-Description=ZeroTier DNS查询日志服务
-After=network.target zerotier-one.service
+Description=ZeroTier DNS查询日志处理服务
+After=network.target zerotier-one.service dnsmasq.service
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/zt-dns-capture.sh $ZT_INTERFACE $DNS_LOG_FILE $SCRIPT_DIR
+ExecStart=/usr/local/bin/zt-dns-processor.sh $DNSMASQ_LOG_FILE $DNS_LOG_FILE $SCRIPT_DIR
 Restart=on-failure
 RestartSec=5
+Nice=10
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+MemoryLimit=50M
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # 启用并启动服务
-    systemctl daemon-reload
-    systemctl enable zt-dns-logger
-    systemctl restart zt-dns-logger
+    # 确保dnsmasq使用我们的配置
+    systemctl restart dnsmasq
     
-    log "INFO" "DNS日志记录已设置"
+    # 启用并启动日志处理服务
+    systemctl daemon-reload
+    systemctl enable zt-dns-processor
+    systemctl restart zt-dns-processor
+    
+    # 停止并禁用旧的DNS日志服务（如果存在）
+    if systemctl is-active --quiet zt-dns-logger; then
+        systemctl stop zt-dns-logger
+        systemctl disable zt-dns-logger
+    fi
+    
+    log "INFO" "基于dnsmasq的DNS日志功能已初始化"
     return 0
 }
 
@@ -193,6 +170,25 @@ show_dns_logs() {
     if [ ! -f "$DNS_LOG_FILE" ]; then
         echo -e "${YELLOW}未找到DNS日志文件，请确保DNS日志功能已启用${NC}"
         return 1
+    fi
+    
+    # 检查是否需要重启日志服务
+    if ! systemctl is-active --quiet zt-dns-processor; then
+        echo -e "${YELLOW}DNS日志处理服务未运行，尝试重启服务...${NC}"
+        systemctl restart zt-dns-processor
+        
+        # 检查dnsmasq服务状态
+        if ! systemctl is-active --quiet dnsmasq; then
+            echo -e "${RED}dnsmasq服务未运行，这可能导致DNS日志无法正常工作${NC}"
+            echo -e "${YELLOW}正在尝试启动dnsmasq服务...${NC}"
+            systemctl restart dnsmasq
+        fi
+        
+        # 如果没有看到"已转发"的记录，提示用户可能需要重启服务
+        if ! grep -q "已转发" "$DNS_LOG_FILE"; then
+            echo -e "${YELLOW}提示: 如果您看不到\"已转发\"的记录，可能需要重启网关服务。${NC}"
+            echo -e "${YELLOW}请运行: ./zerotier-gateway.sh --restart${NC}"
+        fi
     fi
     
     echo -e "${YELLOW}最近 $count 条DNS查询:${NC}"
@@ -235,6 +231,7 @@ show_dns_logs() {
     awk '{print $2}' "$DNS_LOG_FILE" | sort | uniq -c | sort -rn | head -10
     
     echo -e "\n${YELLOW}日志文件:${NC} $DNS_LOG_FILE"
+    echo -e "${YELLOW}dnsmasq原始日志:${NC} $DNSMASQ_LOG_FILE"
     echo -e "使用 '--dns-log-count <数量>' 选项可查看更多记录"
     echo -e "使用 '--dns-log-domain <域名>' 选项可按域名筛选"
     echo -e "使用 '--dns-log-status <已转发|未转发>' 选项可按状态筛选"
@@ -257,6 +254,23 @@ reset_dns_logs() {
     # 创建新的空日志文件
     touch "$DNS_LOG_FILE"
     chmod 644 "$DNS_LOG_FILE"
+    
+    if [ -f "$DNSMASQ_LOG_FILE" ]; then
+        # 备份旧的dnsmasq日志
+        local timestamp=$(date +"%Y%m%d-%H%M%S")
+        mv "$DNSMASQ_LOG_FILE" "${DNSMASQ_LOG_FILE}.${timestamp}"
+        log "INFO" "已备份旧的dnsmasq日志到 ${DNSMASQ_LOG_FILE}.${timestamp}"
+        
+        # 创建新的空dnsmasq日志文件
+        touch "$DNSMASQ_LOG_FILE"
+        chmod 644 "$DNSMASQ_LOG_FILE"
+        
+        # 重启dnsmasq，以便它使用新的日志文件
+        systemctl restart dnsmasq
+        
+        # 重启日志处理服务
+        systemctl restart zt-dns-processor
+    fi
     
     log "INFO" "DNS日志已重置"
     return 0

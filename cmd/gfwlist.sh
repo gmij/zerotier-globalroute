@@ -16,11 +16,11 @@ SCRIPT_GFWLIST_DOMAINS="$SCRIPT_CONFIG_DIR/gfwlist_domains.txt"
 SCRIPT_DNSMASQ_CONF="$SCRIPT_CONFIG_DIR/zt-gfwlist.conf"
 # 自定义域名列表文件
 SCRIPT_CUSTOM_DOMAINS="$SCRIPT_CONFIG_DIR/custom_domains.txt"
-# 系统目标目录中的配置文件
-GFWLIST_LOCAL="/etc/zt-gateway/gfwlist.txt"
-GFWLIST_DOMAINS="/etc/zt-gateway/gfwlist_domains.txt"
-# 系统中的自定义域名列表
-CUSTOM_DOMAINS="/etc/zt-gateway/custom_domains.txt"
+# 保持与主程序目录一致的配置文件路径
+GFWLIST_LOCAL="$SCRIPT_CONFIG_DIR/gfwlist.txt"
+GFWLIST_DOMAINS="$SCRIPT_CONFIG_DIR/gfwlist_domains.txt"
+# 自定义域名列表
+CUSTOM_DOMAINS="$SCRIPT_CONFIG_DIR/custom_domains.txt"
 GFWLIST_IPSET="gfwlist"
 DNSMASQ_CONF="/etc/dnsmasq.d/zt-gfwlist.conf"
 
@@ -122,6 +122,17 @@ setup_dnsmasq() {
     echo "min-cache-ttl=3600" >> "$SCRIPT_DNSMASQ_CONF"
     echo "dns-forward-max=1000" >> "$SCRIPT_DNSMASQ_CONF"
     echo "neg-ttl=600" >> "$SCRIPT_DNSMASQ_CONF"
+    
+    # 添加日志配置
+    if [ "$DNS_LOGGING" = "1" ]; then
+        echo "# DNS 日志配置" >> "$SCRIPT_DNSMASQ_CONF"
+        echo "log-queries=extra" >> "$SCRIPT_DNSMASQ_CONF"
+        echo "log-facility=${SCRIPT_DIR}/logs/dnsmasq.log" >> "$SCRIPT_DNSMASQ_CONF"
+        echo "log-async=50" >> "$SCRIPT_DNSMASQ_CONF"
+        mkdir -p "${SCRIPT_DIR}/logs"
+        touch "${SCRIPT_DIR}/logs/dnsmasq.log"
+        chmod 644 "${SCRIPT_DIR}/logs/dnsmasq.log"
+    fi
     echo "" >> "$SCRIPT_DNSMASQ_CONF"
     
     # 添加 GFW List 域名解析规则
