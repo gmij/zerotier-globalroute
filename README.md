@@ -23,6 +23,20 @@ ZeroTier 全局路由网关是一套主要针对 CentOS 系统开发的脚本工
 
 ## 快速开始
 
+### 一键部署
+
+可以使用以下命令快速下载并运行最新的集成脚本：
+
+```bash
+curl -fsSL https://github.com/gmij/zerotier-globalroute/releases/latest/download/zerotier-gateway-bundle.sh -o deploy.sh && chmod +x deploy.sh && sudo ./deploy.sh
+```
+
+或者使用wget：
+
+```bash
+wget -O deploy.sh https://github.com/gmij/zerotier-globalroute/releases/latest/download/zerotier-gateway-bundle.sh && chmod +x deploy.sh && sudo ./deploy.sh
+```
+
 ### 安装方法
 
 1. 克隆或下载本仓库到您的服务器
