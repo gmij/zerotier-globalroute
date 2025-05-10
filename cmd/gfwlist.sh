@@ -481,12 +481,31 @@ check_gfwlist_status() {
         custom_domain_count=$(grep -v '^#' "$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$' | wc -l)
     fi
     
+    # 检查 Squid 代理状态
+    local squid_status="未知"
+    if systemctl is-active --quiet squid; then
+        squid_status="${GREEN}运行中${NC}"
+    elif systemctl is-active --quiet squid3; then
+        squid_status="${GREEN}运行中${NC}" 
+    else
+        squid_status="${YELLOW}未运行${NC}"
+    fi
+    
+    # 检查 3128 端口是否开放
+    local port_status="未知"
+    if netstat -tuln | grep -q ':3128 '; then
+        port_status="${GREEN}已开放${NC}"
+    else
+        port_status="${YELLOW}未开放${NC}"
+    fi
+    
     echo -e "GFW List 模式: $status"
     echo -e "GFW List 域名列表: ${YELLOW}$domain_count${NC} 个域名"
     echo -e "自定义域名列表: ${YELLOW}$custom_domain_count${NC} 个域名"
     echo -e "配置文件位置: ${BLUE}$SCRIPT_CONFIG_DIR${NC}"
     echo -e "DNS 服务: $dnsmasq_status"
     echo -e "DNS 服务器: $dns_servers"
+    echo -e "Squid 代理: $squid_status (端口 3128: $port_status)"
     echo -e "自动更新: $auto_update"
     echo -e "最后更新: $update_time"
     echo ""
@@ -822,6 +841,15 @@ test_custom_domain() {
             echo -e "IP $ip ${RED}未添加${NC}到 ipset"
         fi
     done
+    
+    # 检查是否可以通过 Squid 代理访问
+    echo -e "\n${YELLOW}检查 Squid 代理状态...${NC}"
+    if netstat -tuln | grep -q ':3128 '; then
+        echo -e "Squid 代理端口 ${GREEN}已开放${NC}，您可以通过 http://$domain:3128 访问此域名"
+        echo -e "注意: 通过 Squid 代理的流量将由 Squid 决定路由方式，不受 GFW List 规则影响"
+    else
+        echo -e "Squid 代理端口 ${YELLOW}未开放${NC}"
+    fi
     
     return 0
 }

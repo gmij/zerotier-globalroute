@@ -37,6 +37,10 @@ show_help() {
     echo "  --remove-domain 域名 从 GFW List 中删除自定义域名"
     echo "  --test-domain 域名   测试指定域名的解析和 ipset 添加情况"
     echo ""
+    echo "代理服务:"
+    echo "  端口 3128 (Squid)   所有通过端口 3128 的流量将由 Squid 代理决定路由"
+    echo "                      这些流量不受 GFW List 分流规则影响"
+    echo ""
 }
 
 # 自动检测 ZeroTier 接口

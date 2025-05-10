@@ -76,8 +76,9 @@ setup_firewall() {
         # 然后添加 GFW List 特定的规则
         iptables -t nat -A POSTROUTING -s $ZT_NETWORK -m set --match-set gfwlist dst -o $WAN_INTERFACE -j MASQUERADE
         
-        # 添加 mark 规则，用于路由选择
-        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -m set --match-set gfwlist dst -j MARK --set-mark 1
+        # 添加 mark 规则，用于路由选择 (排除 Squid 代理端口 3128 的流量)
+        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p tcp ! --dport 3128 -m set --match-set gfwlist dst -j MARK --set-mark 1
+        iptables -t mangle -A PREROUTING -i $ZT_INTERFACE -p udp -m set --match-set gfwlist dst -j MARK --set-mark 1
         
         # 添加策略路由
         if ! grep -q "200 gfw" /etc/iproute2/rt_tables; then
@@ -116,6 +117,11 @@ setup_firewall() {
     iptables -A INPUT -p udp --dport 53 -j ACCEPT
     iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
     iptables -A INPUT -p udp --dport 9993 -j ACCEPT
+    
+    # 允许 Squid 代理端口（3128）的流量，让 Squid 自行处理路由
+    iptables -A INPUT -p tcp --dport 3128 -j ACCEPT
+    # 对于来自 ZeroTier 网络的 3128 端口流量，跳过 NAT，由 Squid 自行决定路由
+    iptables -t nat -A PREROUTING -i $ZT_INTERFACE -p tcp --dport 3128 -j ACCEPT
 
     # IPv6 防火墙规则 (如果启用)
     if [ "$IPV6_ENABLED" = "1" ]; then
