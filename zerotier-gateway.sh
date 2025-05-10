@@ -76,8 +76,7 @@ while [[ "$#" -gt 0 ]]; do
             prepare_dirs
             check_gfwlist_status
             exit 0
-            ;;
-        --test-gfw)
+            ;;        --test-gfw)
             prepare_dirs
             # 检查是否已安装GFW List模式
             if [ -f "$CONFIG_FILE" ]; then
@@ -97,6 +96,74 @@ while [[ "$#" -gt 0 ]]; do
             # 运行测试
             test_gfwlist
             exit $?
+            ;;
+        --list-domains)
+            prepare_dirs
+            # 确认GFW List模式已启用
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            if [ "$GFWLIST_MODE" != "1" ]; then
+                log "WARN" "GFW List 模式未启用，无法查看自定义域名列表"
+                exit 1
+            fi
+            list_custom_domains
+            exit 0
+            ;;
+        --add-domain)
+            if [ -z "$2" ]; then
+                handle_error "请指定要添加的域名，例如: --add-domain example.com"
+            fi
+            domain="$2"
+            prepare_dirs
+            # 确认GFW List模式已启用
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            if [ "$GFWLIST_MODE" != "1" ]; then
+                log "WARN" "GFW List 模式未启用，先启用再添加"
+                GFWLIST_MODE=1
+                init_gfwlist_mode
+            fi
+            add_custom_domain "$domain"
+            shift  # 额外移动一次，跳过域名参数
+            exit 0
+            ;;
+        --remove-domain)
+            if [ -z "$2" ]; then
+                handle_error "请指定要删除的域名，例如: --remove-domain example.com"
+            fi
+            domain="$2"
+            prepare_dirs
+            # 确认GFW List模式已启用
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            if [ "$GFWLIST_MODE" != "1" ]; then
+                log "WARN" "GFW List 模式未启用，无法删除域名"
+                exit 1
+            fi
+            remove_custom_domain "$domain"
+            shift  # 额外移动一次，跳过域名参数
+            exit 0
+            ;;
+        --test-domain)
+            if [ -z "$2" ]; then
+                handle_error "请指定要测试的域名，例如: --test-domain example.com"
+            fi
+            domain="$2"
+            prepare_dirs
+            # 确认GFW List模式已启用
+            if [ -f "$CONFIG_FILE" ]; then
+                source "$CONFIG_FILE"
+            fi
+            if [ "$GFWLIST_MODE" != "1" ]; then
+                log "WARN" "GFW List 模式未启用，无法测试域名"
+                exit 1
+            fi
+            test_custom_domain "$domain"
+            shift  # 额外移动一次，跳过域名参数
+            exit 0
             ;;
         *) handle_error "未知参数: $1" ;;
     esac

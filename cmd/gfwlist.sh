@@ -14,9 +14,13 @@ SCRIPT_CONFIG_DIR="$SCRIPT_DIR/config"
 SCRIPT_GFWLIST_LOCAL="$SCRIPT_CONFIG_DIR/gfwlist.txt"
 SCRIPT_GFWLIST_DOMAINS="$SCRIPT_CONFIG_DIR/gfwlist_domains.txt"
 SCRIPT_DNSMASQ_CONF="$SCRIPT_CONFIG_DIR/zt-gfwlist.conf"
+# 自定义域名列表文件
+SCRIPT_CUSTOM_DOMAINS="$SCRIPT_CONFIG_DIR/custom_domains.txt"
 # 系统目标目录中的配置文件
 GFWLIST_LOCAL="/etc/zt-gateway/gfwlist.txt"
 GFWLIST_DOMAINS="/etc/zt-gateway/gfwlist_domains.txt"
+# 系统中的自定义域名列表
+CUSTOM_DOMAINS="/etc/zt-gateway/custom_domains.txt"
 GFWLIST_IPSET="gfwlist"
 DNSMASQ_CONF="/etc/dnsmasq.d/zt-gfwlist.conf"
 
@@ -120,11 +124,30 @@ setup_dnsmasq() {
     echo "neg-ttl=600" >> "$SCRIPT_DNSMASQ_CONF"
     echo "" >> "$SCRIPT_DNSMASQ_CONF"
     
-    # 添加域名解析规则
+    # 添加 GFW List 域名解析规则
     echo "# GFW List 域名规则 - 共 $(wc -l < "$SCRIPT_GFWLIST_DOMAINS") 条" >> "$SCRIPT_DNSMASQ_CONF"
     while IFS= read -r domain; do
         echo "ipset=/$domain/$GFWLIST_IPSET" >> "$SCRIPT_DNSMASQ_CONF"
     done < "$SCRIPT_GFWLIST_DOMAINS"
+    
+    # 确保自定义域名列表文件存在
+    touch "$SCRIPT_CUSTOM_DOMAINS" 2>/dev/null
+    
+    # 添加自定义域名解析规则
+    local custom_count=0
+    if [ -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        custom_count=$(wc -l < "$SCRIPT_CUSTOM_DOMAINS" 2>/dev/null || echo '0')
+        if [ "$custom_count" -gt 0 ]; then
+            echo "" >> "$SCRIPT_DNSMASQ_CONF"
+            echo "# 自定义域名规则 - 共 $custom_count 条" >> "$SCRIPT_DNSMASQ_CONF"
+            while IFS= read -r domain; do
+                # 跳过空行和注释行
+                [[ -z "$domain" || "$domain" == \#* ]] && continue
+                echo "ipset=/$domain/$GFWLIST_IPSET" >> "$SCRIPT_DNSMASQ_CONF"
+            done < "$SCRIPT_CUSTOM_DOMAINS"
+        fi
+    fi
+    log "INFO" "添加了 $custom_count 个自定义域名"
     
     # 检查是否存在可能的DNS端口冲突
     local is_port_conflict=0
@@ -249,6 +272,9 @@ init_gfwlist_mode() {
     # 下载和解析 GFW List
     download_gfwlist
     
+    # 初始化自定义域名列表
+    init_custom_domains
+    
     # 设置 ipset
     setup_ipset
     
@@ -282,6 +308,7 @@ LOG_FILE="/var/log/zt-gateway.log"
 GFWLIST_URL="$GFWLIST_URL"
 SCRIPT_GFWLIST_LOCAL="\$CONFIG_DIR/gfwlist.txt"
 SCRIPT_GFWLIST_DOMAINS="\$CONFIG_DIR/gfwlist_domains.txt"
+SCRIPT_CUSTOM_DOMAINS="\$CONFIG_DIR/custom_domains.txt"
 SCRIPT_DNSMASQ_CONF="\$CONFIG_DIR/zt-gfwlist.conf"
 GFWLIST_IPSET="gfwlist"
 DNSMASQ_CONF="/etc/dnsmasq.d/zt-gfwlist.conf"
@@ -326,11 +353,23 @@ if curl -s -o "\$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_URL" || wget -q -O "\$SCRIPT_GF
     echo "neg-ttl=600" >> "\$SCRIPT_DNSMASQ_CONF"
     echo "" >> "\$SCRIPT_DNSMASQ_CONF"
     
-    # 添加域名规则
+    # 添加GFW List域名规则
     echo "# GFW List 域名规则 - 共 \$(wc -l < "\$SCRIPT_GFWLIST_DOMAINS") 条" >> "\$SCRIPT_DNSMASQ_CONF"
     while IFS= read -r domain; do
         echo "ipset=/\$domain/\$GFWLIST_IPSET" >> "\$SCRIPT_DNSMASQ_CONF"
     done < "\$SCRIPT_GFWLIST_DOMAINS"
+    
+    # 添加自定义域名规则
+    if [ -f "\$SCRIPT_CUSTOM_DOMAINS" ]; then
+        custom_count=\$(grep -v '^#' "\$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$' | wc -l)
+        if [ "\$custom_count" -gt 0 ]; then
+            echo "" >> "\$SCRIPT_DNSMASQ_CONF"
+            echo "# 自定义域名规则 - 共 \$custom_count 条" >> "\$SCRIPT_DNSMASQ_CONF"
+            grep -v '^#' "\$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$' | while read -r domain; do
+                echo "ipset=/\$domain/\$GFWLIST_IPSET" >> "\$SCRIPT_DNSMASQ_CONF"
+            done
+        fi
+    fi
     
     # 更新软链接或复制文件
     ln -sf "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt" 2>/dev/null || cp -f "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt"
@@ -368,6 +407,11 @@ EOL
 # 更新 GFW List
 update_gfwlist() {
     log "INFO" "更新 GFW List..."
+    
+    # 确保自定义域名列表存在
+    if [ ! -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        init_custom_domains
+    fi
     
     # 下载和解析 GFW List
     download_gfwlist
@@ -431,8 +475,15 @@ check_gfwlist_status() {
         domain_count=$(wc -l < "$GFWLIST_DOMAINS" 2>/dev/null || echo '0')
     fi
     
+    # 获取自定义域名数量
+    local custom_domain_count=0
+    if [ -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        custom_domain_count=$(grep -v '^#' "$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$' | wc -l)
+    fi
+    
     echo -e "GFW List 模式: $status"
-    echo -e "域名列表: ${YELLOW}$domain_count${NC} 个域名"
+    echo -e "GFW List 域名列表: ${YELLOW}$domain_count${NC} 个域名"
+    echo -e "自定义域名列表: ${YELLOW}$custom_domain_count${NC} 个域名"
     echo -e "配置文件位置: ${BLUE}$SCRIPT_CONFIG_DIR${NC}"
     echo -e "DNS 服务: $dnsmasq_status"
     echo -e "DNS 服务器: $dns_servers"
@@ -443,6 +494,8 @@ check_gfwlist_status() {
     # 显示进一步操作的提示
     echo -e "${YELLOW}提示:${NC}"
     echo -e "- 更新 GFW List: ./zerotier-gateway.sh --update-gfwlist"
+    echo -e "- 查看自定义域名: ./zerotier-gateway.sh --list-domains"
+    echo -e "- 添加自定义域名: ./zerotier-gateway.sh --add-domain example.com"
     echo -e "- 查看详细流量: ./zerotier-gateway.sh --stats"
 }
 
@@ -580,6 +633,195 @@ test_gfwlist() {
         echo -e "2. DNS解析没有正确将IP添加到ipset"
         echo -e "3. 解析的域名不在GFW列表中"
     fi
+    
+    return 0
+}
+
+# 初始化自定义域名列表
+init_custom_domains() {
+    log "INFO" "初始化自定义域名列表..."
+    
+    # 确保配置目录存在
+    mkdir -p "$SCRIPT_CONFIG_DIR"
+    mkdir -p /etc/zt-gateway
+    
+    # 如果自定义域名列表文件不存在，创建它
+    if [ ! -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        echo "# ZeroTier 网关自定义域名列表" > "$SCRIPT_CUSTOM_DOMAINS"
+        echo "# 每行一个域名，支持通配符（如 *.example.com）" >> "$SCRIPT_CUSTOM_DOMAINS"
+        echo "# 以#开头的行为注释" >> "$SCRIPT_CUSTOM_DOMAINS"
+        echo "" >> "$SCRIPT_CUSTOM_DOMAINS"
+        echo "# 示例:" >> "$SCRIPT_CUSTOM_DOMAINS"
+        echo "#example.com" >> "$SCRIPT_CUSTOM_DOMAINS"
+        echo "#*.example.org" >> "$SCRIPT_CUSTOM_DOMAINS"
+    fi
+    
+    # 创建软链接到系统目录
+    ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
+        sudo ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
+            log "WARN" "无法创建自定义域名列表软链接，使用复制替代"
+            cp -f "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS"
+        }
+    }
+    
+    log "INFO" "自定义域名列表初始化完成"
+    return 0
+}
+
+# 添加自定义域名
+add_custom_domain() {
+    local domain="$1"
+    if [ -z "$domain" ]; then
+        handle_error "请指定要添加的域名"
+    fi
+    
+    # 确保自定义域名列表已初始化
+    if [ ! -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        init_custom_domains
+    fi
+    
+    # 检查域名是否已存在
+    if grep -q "^$domain$" "$SCRIPT_CUSTOM_DOMAINS"; then
+        log "WARN" "域名 $domain 已存在于自定义列表中"
+        return 0
+    fi
+    
+    # 添加域名
+    echo "$domain" >> "$SCRIPT_CUSTOM_DOMAINS"
+    log "INFO" "已添加域名 $domain 到自定义列表"
+    
+    # 更新 dnsmasq 配置
+    setup_dnsmasq
+    
+    # 测试解析
+    log "INFO" "测试解析 $domain..."
+    local dns_port="53"
+    if grep -q "^port=5353" /etc/dnsmasq.conf 2>/dev/null; then
+        dns_port="5353"
+    fi
+    
+    # 尝试解析域名
+    local ips=$(dig +short $domain @127.0.0.1 -p $dns_port)
+    if [ -z "$ips" ] && [ "$dns_port" = "53" ]; then
+        ips=$(dig +short $domain @127.0.0.1 -p 5353)
+    elif [ -z "$ips" ] && [ "$dns_port" = "5353" ]; then
+        ips=$(dig +short $domain @127.0.0.1)
+    fi
+    
+    if [ -n "$ips" ]; then
+        log "INFO" "域名 $domain 解析成功，IP: $ips"
+    else
+        log "WARN" "域名 $domain 解析失败，但已添加到列表"
+    fi
+    
+    return 0
+}
+
+# 删除自定义域名
+remove_custom_domain() {
+    local domain="$1"
+    if [ -z "$domain" ]; then
+        handle_error "请指定要删除的域名"
+    fi
+    
+    # 确保自定义域名列表存在
+    if [ ! -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        log "WARN" "自定义域名列表不存在"
+        return 1
+    fi
+    
+    # 检查域名是否存在
+    if ! grep -q "^$domain$" "$SCRIPT_CUSTOM_DOMAINS"; then
+        log "WARN" "域名 $domain 不在自定义列表中"
+        return 1
+    fi
+    
+    # 删除域名
+    sed -i "/^$domain$/d" "$SCRIPT_CUSTOM_DOMAINS"
+    log "INFO" "已删除域名 $domain 从自定义列表"
+    
+    # 更新 dnsmasq 配置
+    setup_dnsmasq
+    
+    return 0
+}
+
+# 列出自定义域名
+list_custom_domains() {
+    echo -e "${GREEN}===== 自定义域名列表 =====${NC}"
+    
+    # 确保自定义域名列表存在
+    if [ ! -f "$SCRIPT_CUSTOM_DOMAINS" ]; then
+        echo -e "${YELLOW}自定义域名列表尚未创建${NC}"
+        return 0
+    fi
+    
+    # 计算非注释和非空行的数量
+    local count=$(grep -v '^#' "$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$' | wc -l)
+    echo -e "共 ${YELLOW}$count${NC} 个自定义域名:"
+    echo ""
+    
+    # 输出所有非注释和非空行
+    grep -v '^#' "$SCRIPT_CUSTOM_DOMAINS" | grep -v '^$'
+    
+    echo ""
+    echo -e "${YELLOW}提示:${NC}"
+    echo -e "- 添加域名: ./zerotier-gateway.sh --add-domain example.com"
+    echo -e "- 删除域名: ./zerotier-gateway.sh --remove-domain example.com"
+    
+    return 0
+}
+
+# 测试自定义域名
+test_custom_domain() {
+    local domain="$1"
+    if [ -z "$domain" ]; then
+        handle_error "请指定要测试的域名"
+    fi
+    
+    echo -e "${GREEN}===== 测试自定义域名 $domain =====${NC}"
+    
+    # 检查DNS服务
+    if ! systemctl is-active --quiet dnsmasq; then
+        echo -e "${RED}错误: dnsmasq 服务未运行${NC}"
+        return 1
+    fi
+    
+    # 检测DNS端口
+    local dns_port="53"
+    if grep -q "^port=5353" /etc/dnsmasq.conf 2>/dev/null; then
+        dns_port="5353"
+        echo -e "使用DNS端口: 5353"
+    else
+        echo -e "使用DNS端口: 53"
+    fi
+    
+    # 尝试解析域名
+    echo -e "解析 $domain..."
+    local ips=$(dig +short $domain @127.0.0.1 -p $dns_port)
+    if [ -z "$ips" ] && [ "$dns_port" = "53" ]; then
+        ips=$(dig +short $domain @127.0.0.1 -p 5353)
+    elif [ -z "$ips" ] && [ "$dns_port" = "5353" ]; then
+        ips=$(dig +short $domain @127.0.0.1)
+    fi
+    
+    if [ -z "$ips" ]; then
+        echo -e "${RED}无法解析 $domain${NC}"
+        return 1
+    fi
+    
+    echo -e "${GREEN}成功解析 $domain${NC}"
+    echo -e "解析结果: $ips"
+    
+    # 检查IP是否在ipset中
+    echo -e "\n${YELLOW}检查解析的IP是否添加到ipset...${NC}"
+    for ip in $ips; do
+        if ipset test "$GFWLIST_IPSET" $ip 2>/dev/null; then
+            echo -e "IP $ip ${GREEN}已添加${NC}到 ipset"
+        else
+            echo -e "IP $ip ${RED}未添加${NC}到 ipset"
+        fi
+    done
     
     return 0
 }

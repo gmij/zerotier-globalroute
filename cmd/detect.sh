@@ -31,6 +31,12 @@ show_help() {
     echo "  -S, --gfwlist-status 显示 GFW List 状态"
     echo "  --test-gfw          测试 GFW List 解析和 ipset 添加功能"
     echo ""
+    echo "自定义域名管理:"
+    echo "  --list-domains      列出自定义域名"
+    echo "  --add-domain 域名   添加自定义域名到 GFW List"
+    echo "  --remove-domain 域名 从 GFW List 中删除自定义域名"
+    echo "  --test-domain 域名   测试指定域名的解析和 ipset 添加情况"
+    echo ""
 }
 
 # 自动检测 ZeroTier 接口
