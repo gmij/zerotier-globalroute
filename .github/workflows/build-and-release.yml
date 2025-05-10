@@ -77,8 +77,5 @@ jobs:
             2. 设置执行权限: `chmod +x zerotier-gateway-bundle.sh`
             3. 运行脚本: `./zerotier-gateway-bundle.sh`
             
-            ## 发布日期
-            
-            发布时间: $(date +'%Y-%m-%d')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
