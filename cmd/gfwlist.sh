@@ -248,7 +248,7 @@ setup_dnsmasq() {
                 cp -f "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF"
             }
         }
-    }
+    fi
 
     # 启用并重启 dnsmasq
     systemctl enable dnsmasq
@@ -459,7 +459,7 @@ EOL
                 cp -f "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT"
             }
         }
-    }
+    fi
 
     # 确保系统脚本有执行权限
     chmod +x "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null || sudo chmod +x "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null
@@ -739,7 +739,7 @@ init_custom_domains() {
         echo "#*.example.org" >> "$SCRIPT_CUSTOM_DOMAINS"
     fi
 
-    # 创建软链接到系统目录，先检查源和目标是否相同
+    # 创建自定义域名列表软链接，先检查源和目标是否相同
     if [ "$SCRIPT_CUSTOM_DOMAINS" != "$CUSTOM_DOMAINS" ]; then
         # 确保目标目录存在
         mkdir -p $(dirname "$CUSTOM_DOMAINS") 2>/dev/null
@@ -749,7 +749,7 @@ init_custom_domains() {
                 cp -f "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS"
             }
         }
-    }
+    fi
 
     log "INFO" "自定义域名列表初始化完成"
     return 0

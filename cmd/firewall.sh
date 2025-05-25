@@ -111,21 +111,43 @@ configure_basic_rules() {
     iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
     iptables -A INPUT -p udp --dport 9993 -j ACCEPT  # ZeroTier 端口
     iptables -A INPUT -p tcp --dport 3128 -j ACCEPT  # Squid 代理端口
+
+    log "INFO" "基础防火墙规则配置完成"
 }
 
-            log "INFO" "GFW List 分流规则配置完成"
+# 配置NAT规则
+configure_nat_rules() {
+    local zt_interface="$1"
+    local wan_interface="$2"
+    local zt_network="$3"
+    local gfwlist_mode="$4"
+
+    log "INFO" "配置NAT规则..."
+
+    # 检查是否启用GFW分流模式
+    if [ "$gfwlist_mode" = "1" ]; then
+        # GFW分流模式的特殊处理
+        if command -v ip >/dev/null 2>&1; then
+            local default_gateway=$(ip route | grep default | head -1 | awk '{print $3}')
+            if [ -n "$default_gateway" ]; then
+                # 配置GFW分流规则
+                configure_gfwlist_rules "$zt_interface" "$wan_interface"
+                log "INFO" "GFW List 分流规则配置完成"
+            else
+                log "WARN" "无法获取默认网关，分流可能无法正常工作"
+            fi
         else
             log "WARN" "无法获取默认网关，分流可能无法正常工作"
         fi
     else
         # 常规 NAT 规则（排除 Squid 流量）
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp ! --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p udp -o $WAN_INTERFACE -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s "$zt_network" -p tcp ! --dport 3128 -o "$wan_interface" -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s "$zt_network" -p udp -o "$wan_interface" -j MASQUERADE
         # 单独处理 Squid 代理流量
-        iptables -t nat -A POSTROUTING -s $ZT_NETWORK -p tcp --dport 3128 -o $WAN_INTERFACE -j MASQUERADE
+        iptables -t nat -A POSTROUTING -s "$zt_network" -p tcp --dport 3128 -o "$wan_interface" -j MASQUERADE
     fi
 
-    iptables -t nat -A POSTROUTING -o $ZT_INTERFACE -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o "$zt_interface" -j MASQUERADE
     iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
     # 如果启用了DNS日志功能
@@ -137,14 +159,6 @@ configure_basic_rules() {
 
         log "INFO" "DNS日志功能已配置完成"
     fi
-
-    # 允许必要的服务
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-    iptables -A INPUT -p udp --dport 53 -j ACCEPT
-    iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-    iptables -A INPUT -p udp --dport 9993 -j ACCEPT  # ZeroTier 端口
-    iptables -A INPUT -p tcp --dport 3128 -j ACCEPT  # Squid 代理端口
 }
 
 # 配置GFW规则

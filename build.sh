@@ -99,15 +99,11 @@ BUNDLE_VERSION="Base64-3.2"
 BUNDLE_SCRIPT_PATH="\$(readlink -f "\$0" 2>/dev/null || realpath "\$0" 2>/dev/null || echo "\$0")"
 SCRIPT_DIR="\$(dirname "\$BUNDLE_SCRIPT_PATH")"
 
-# 创建临时目录
-TMP_DIR=\$(mktemp -d)
-trap 'rm -rf "\$TMP_DIR"' EXIT
-
 echo -e "\${GREEN}正在运行 ZeroTier 网关配置脚本 (Base64版)...\${NC}"
-echo -e "\${YELLOW}临时目录: \$TMP_DIR\${NC}"
+echo -e "\${YELLOW}工作目录: \$SCRIPT_DIR\${NC}"
 
 # 创建目录结构
-mkdir -p "\$TMP_DIR"/{cmd,config,templates,logs}
+mkdir -p "\$SCRIPT_DIR"/{cmd,config,templates,logs}
 
 # 解码函数
 decode_and_create() {
@@ -143,7 +139,7 @@ for file in "${REQUIRED_FILES[@]}"; do
 
         cat >> "$OUTPUT_FILE" << EOL
 # 解码 $filename
-decode_and_create "$base64_content" "\$TMP_DIR/$file"
+decode_and_create "$base64_content" "\$SCRIPT_DIR/$file"
 
 EOL
         echo -e "${GREEN}已编码: $file${NC}"
@@ -156,7 +152,7 @@ if [[ -f "$SCRIPT_DIR/config/default.conf" ]]; then
     base64_content=$(encode_file "$SCRIPT_DIR/config/default.conf")
     cat >> "$OUTPUT_FILE" << EOL
 # 解码 default.conf
-decode_and_create "$base64_content" "\$TMP_DIR/config/default.conf"
+decode_and_create "$base64_content" "\$SCRIPT_DIR/config/default.conf"
 
 EOL
     echo -e "${GREEN}已编码: config/default.conf${NC}"
@@ -172,7 +168,7 @@ if [[ -d "$SCRIPT_DIR/templates" ]]; then
 
         cat >> "$OUTPUT_FILE" << EOL
 # 解码 $filename
-decode_and_create "$base64_content" "\$TMP_DIR/$relative_path"
+decode_and_create "$base64_content" "\$SCRIPT_DIR/$relative_path"
 
 EOL
         echo -e "${GREEN}已编码: $relative_path${NC}"
@@ -185,17 +181,16 @@ main_script_base64=$(encode_file "$SCRIPT_DIR/zerotier-gateway.sh")
 
 cat >> "$OUTPUT_FILE" << EOL
 # 解码主脚本
-decode_and_create "$main_script_base64" "\$TMP_DIR/zerotier-gateway.sh"
+decode_and_create "$main_script_base64" "\$SCRIPT_DIR/zerotier-gateway.sh"
 
-# 设置SCRIPT_DIR为临时目录，这样主脚本可以找到其他模块
-export SCRIPT_DIR="\$TMP_DIR"
+# 设置环境变量，主脚本可以找到其他模块
 export BUNDLE_MODE=true
 
 echo -e "\${GREEN}所有文件解码完成！\${NC}"
 echo -e "\${BLUE}开始执行主脚本...\${NC}"
 
 # 执行主脚本
-cd "\$TMP_DIR"
+cd "\$SCRIPT_DIR"
 bash "./zerotier-gateway.sh" "\$@"
 EOL
 
