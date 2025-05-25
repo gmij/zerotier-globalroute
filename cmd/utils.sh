@@ -136,16 +136,22 @@ check_system_requirements() {
 # 网络连接检查
 check_network_connectivity() {
     log "INFO" "检查网络连接..."
+    echo "=== 开始网络连接检查 ===="
 
-    # 快速测试：检查是否有默认路由
+    # 显示当前的默认路由
+    echo "当前默认路由信息："
+    ip route | grep "^default" || echo "未找到默认路由"
+
+    # 检查是否有默认路由
     if ! ip route | grep -q "^default"; then
         log "WARN" "未检测到默认路由，跳过网络连接测试"
+        echo "=== 网络连接检查结束 (无默认路由) ==="
         return 0
     fi
 
     local test_hosts=("8.8.8.8" "1.1.1.1")
     local success_count=0
-    local max_tests=1  # 减少到只测试1个主机
+    local max_tests=1  # 只测试1个主机
 
     local test_count=0
     for host in "${test_hosts[@]}"; do
@@ -153,28 +159,37 @@ check_network_connectivity() {
             break
         fi
 
-        log "DEBUG" "快速测试连接到 $host..."
+        log "DEBUG" "开始测试连接到 $host..."
+        echo "测试连接到 $host..."
 
-        # 使用简单的 ping 测试，快速失败
-        if ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
+        # 直接显示 ping 命令结果（不抑制输出）
+        echo "运行: ping -c 1 -W 1 $host"
+        if ping -c 1 -W 1 "$host"; then
             ((success_count++))
+            echo -e "${GREEN}连接到 $host 成功${NC}"
             log "DEBUG" "连接到 $host 成功"
             break  # 一旦成功就立即退出
         else
+            echo -e "${YELLOW}ping 到 $host 失败 (退出码: $?)${NC}"
             log "DEBUG" "ping 到 $host 失败"
         fi
 
         ((test_count++))
     done
 
+    echo "网络连接检查结果：$success_count/$test_count"
     log "DEBUG" "网络连接检查结果：$success_count/$test_count"
 
     if [ "$success_count" -eq 0 ]; then
         log "WARN" "网络连接检查失败，但继续执行（可能是防火墙阻止了 ICMP 或网络配置特殊）"
-        log "INFO" "如果您确认网络正常，可以忽略此警告"
+        echo -e "${YELLOW}警告：网络连接检查失败，但继续执行${NC}"
+        echo -e "${YELLOW}如果您确认网络正常，可以忽略此警告${NC}"
+        echo "=== 网络连接检查结束 (失败，但继续执行) ==="
         return 0  # 不阻止脚本继续执行
     else
         log "SUCCESS" "网络连接正常"
+        echo -e "${GREEN}网络连接正常${NC}"
+        echo "=== 网络连接检查结束 (成功) ==="
     fi
 
     return 0
@@ -250,11 +265,15 @@ check_system_environment() {
     # 网络连接检查（调试模式下显示更多信息）
     if [ "$SKIP_NETWORK_CHECK" = "1" ]; then
         log "INFO" "跳过网络连接检查（用户指定）"
+        echo -e "${YELLOW}=== 网络连接检查已被用户明确跳过 ===${NC}"
     else
         if [ "$DEBUG_MODE" = "1" ]; then
             log "DEBUG" "调试模式：详细网络连接检查..."
+            echo "开始网络连接检查..."
+            echo "如果此步骤卡住，请使用 Ctrl+C 中断并用 --skip-network 选项重试"
         fi
-        check_network_connectivity
+        check_network_connectivity || log "WARN" "网络连接检查问题，但继续执行"
+        echo -e "${GREEN}=== 网络连接检查已完成 ===${NC}"
     fi
 
     check_disk_space 50

@@ -24,6 +24,7 @@ show_help() {
     echo "  --stats          显示网关流量统计"
     echo "  --test           测试网关连通性"
     echo "  --uninstall      卸载网关配置"
+    echo "  --skip-network   跳过网络连接检查（如果 ping 被防火墙阻止）"
     echo ""
     echo "GFW List 选项:"
     echo "  -g, --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"

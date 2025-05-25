@@ -78,6 +78,10 @@ parse_arguments() {
             --ipv6)
                 IPV6_ENABLED=1
                 ;;
+            --skip-network)
+                SKIP_NETWORK_CHECK=1
+                log "INFO" "网络连接检查已禁用（用户指定）"
+                ;;
             --stats)
                 init_config_system
                 show_traffic_stats
