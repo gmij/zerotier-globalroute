@@ -68,16 +68,12 @@ echo "项目文件检查完成"
 echo "生成 Base64 编码的 bundle脚本: $OUTPUT_FILE"
 
 # 创建bundle头部
-cat > "$OUTPUT_FILE" << 'EOF'
+cat > "$OUTPUT_FILE" << EOF
 #!/bin/bash
 #
 # ZeroTier 全局路由网关 - Base64编码打包版
 # 功能：配置 CentOS 服务器作为 ZeroTier 网络的网关，支持双向流量
-# EOF
-
-echo "# 版本：$VERSION" >> "$OUTPUT_FILE"
-
-cat >> "$OUTPUT_FILE" << 'EOF'
+# 版本：$VERSION
 #
 
 # ====================================================================
@@ -100,41 +96,41 @@ BUNDLE_MODE=true
 BUNDLE_VERSION="Base64-3.2"
 
 # 获取脚本所在目录的绝对路径
-BUNDLE_SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
-SCRIPT_DIR="$(dirname "$BUNDLE_SCRIPT_PATH")"
+BUNDLE_SCRIPT_PATH="\$(readlink -f "\$0" 2>/dev/null || realpath "\$0" 2>/dev/null || echo "\$0")"
+SCRIPT_DIR="\$(dirname "\$BUNDLE_SCRIPT_PATH")"
 
 # 创建临时目录
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+TMP_DIR=\$(mktemp -d)
+trap 'rm -rf "\$TMP_DIR"' EXIT
 
-echo -e "${GREEN}正在运行 ZeroTier 网关配置脚本 (Base64版)...${NC}"
-echo -e "${YELLOW}临时目录: $TMP_DIR${NC}"
+echo -e "\${GREEN}正在运行 ZeroTier 网关配置脚本 (Base64版)...\${NC}"
+echo -e "\${YELLOW}临时目录: \$TMP_DIR\${NC}"
 
 # 创建目录结构
-mkdir -p "$TMP_DIR"/{cmd,config,templates,logs}
+mkdir -p "\$TMP_DIR"/{cmd,config,templates,logs}
 
 # 解码函数
 decode_and_create() {
-    local base64_content="$1"
-    local target_file="$2"
-    local target_dir="$(dirname "$target_file")"
+    local base64_content="\$1"
+    local target_file="\$2"
+    local target_dir="\$(dirname "\$target_file")"
 
-    mkdir -p "$target_dir"
-    echo "$base64_content" | base64 --decode > "$target_file" 2>/dev/null || \
-    echo "$base64_content" | base64 -d > "$target_file" 2>/dev/null || {
-        echo -e "${RED}错误: 无法解码文件 $target_file${NC}"
+    mkdir -p "\$target_dir"
+    echo "\$base64_content" | base64 --decode > "\$target_file" 2>/dev/null || \\
+    echo "\$base64_content" | base64 -d > "\$target_file" 2>/dev/null || {
+        echo -e "\${RED}错误: 无法解码文件 \$target_file\${NC}"
         return 1
     }
 
     # 如果是shell脚本，设置执行权限
-    if [[ "$target_file" == *.sh ]]; then
-        chmod +x "$target_file"
+    if [[ "\$target_file" == *.sh ]]; then
+        chmod +x "\$target_file"
     fi
 
-    echo -e "${GREEN}已解码: $target_file${NC}"
+    echo -e "\${GREEN}已解码: \$target_file\${NC}"
 }
 
-echo -e "${BLUE}开始解码文件...${NC}"
+echo -e "\${BLUE}开始解码文件...\${NC}"
 
 EOF
 
