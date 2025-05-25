@@ -6,6 +6,12 @@
 
 # 配置防火墙规则的主函数
 setup_firewall() {
+    # 检查防火墙规则是否已经配置，防止重复配置
+    if [ "$FIREWALL_CONFIGURED" = "1" ]; then
+        log "DEBUG" "防火墙规则已配置，跳过..."
+        return 0
+    fi
+
     local zt_interface="$ZT_INTERFACE"
     local wan_interface="$WAN_INTERFACE"
     local zt_network="$ZT_NETWORK"
@@ -275,8 +281,19 @@ configure_squid_rules() {
 configure_dns_logging_rules() {
     local zt_interface="$1"
 
+    # 检查DNS规则是否已经配置
+    if [ "$DNS_RULES_CONFIGURED" = "1" ]; then
+        log "DEBUG" "DNS日志防火墙规则已配置，跳过..."
+        return 0
+    fi
+
     log "INFO" "配置DNS日志相关规则..."
-    # DNS日志规则通过dnsmasq实现，这里无需添加额外的iptables规则
+    # 允许ZeroTier网络上的DNS查询流量
+    iptables -A ZT-IN -i "$zt_interface" -p udp --dport 53 -j ACCEPT
+    iptables -A ZT-IN -i "$zt_interface" -p tcp --dport 53 -j ACCEPT
+
+    log "INFO" "DNS日志相关规则已配置"
+    export DNS_RULES_CONFIGURED=1
 }
 
 # 配置GFWList分流规则

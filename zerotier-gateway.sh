@@ -30,6 +30,7 @@ source "$SCRIPT_DIR/cmd/uninstall.sh" # 卸载功能
 source "$SCRIPT_DIR/cmd/firewall.sh"  # 防火墙配置
 source "$SCRIPT_DIR/cmd/gfwlist.sh"   # GFW List 功能
 source "$SCRIPT_DIR/cmd/dnslog.sh"    # DNS 日志功能
+source "$SCRIPT_DIR/cmd/rclocal.sh"   # rc.local 配置
 
 # 主函数
 main() {
@@ -191,6 +192,9 @@ configure_gateway() {
     # 准备目录
     prepare_dirs
 
+    # 配置rc.local，修复执行权限问题
+    setup_rc_local
+
     # 确保 iptables-services 已安装
     if ! rpm -q iptables-services &>/dev/null; then
         log "INFO" "安装 iptables-services..."
@@ -232,6 +236,13 @@ configure_gateway() {
     # 测试网关连通性
     log "INFO" "测试网关连通性..."
     test_gateway_connectivity
+
+    # 显示网关测试结果
+    if [ $? -eq 0 ]; then
+        log "INFO" "网关连通性测试通过"
+    else
+        log "WARN" "网关连通性测试未通过，可能需要进一步检查"
+    fi
 }
 
 # 配置内核参数
@@ -274,7 +285,10 @@ configure_network_interfaces() {
 configure_feature_modules() {
     # 配置防火墙规则
     log "INFO" "配置防火墙规则..."
+    # 确保清理任何现有的标志变量，避免跳过初始化
+    unset FIREWALL_CONFIGURED
     setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK"
+    export FIREWALL_CONFIGURED=1
 
     # 如果启用了 GFW List 模式，初始化相关设置
     if [ "$GFWLIST_MODE" = "1" ]; then
@@ -289,8 +303,10 @@ configure_feature_modules() {
     # 如果启用了 DNS 日志功能，初始化相关设置
     if [ "$DNS_LOGGING" = "1" ]; then
         log "INFO" "启用 DNS 日志功能..."
+        # 确保仅初始化一次
+        unset DNS_LOG_INITIALIZED
         init_dns_logging
-        configure_dns_logging_rules "$ZT_INTERFACE"
+        export DNS_LOG_INITIALIZED=1
     fi
 }
 
@@ -326,6 +342,14 @@ setup_ipset_service() {
 configure_system_services() {
     # 启用并重启防火墙服务
     restart_firewall_service
+
+    # 配置rc.local系统服务
+    if systemctl is-enabled rc-local.service &>/dev/null; then
+        log "DEBUG" "rc-local.service 已启用"
+    else
+        log "INFO" "启用 rc-local.service..."
+        systemctl enable rc-local.service || log "WARN" "无法启用 rc-local.service"
+    fi
 
     # 配置时间同步
     if ! rpm -q chrony &>/dev/null; then

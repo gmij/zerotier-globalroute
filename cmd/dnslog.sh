@@ -21,6 +21,12 @@ DNS_LOG_MAX_DAYS="${DNS_LOG_MAX_DAYS:-7}"  # 保留7天日志
 
 # 初始化DNS日志功能
 init_dns_logging() {
+    # 检查是否已经初始化，避免重复配置
+    if [ "$DNS_LOG_INITIALIZED" = "1" ]; then
+        log "DEBUG" "DNS日志功能已初始化，跳过..."
+        return 0
+    fi
+
     log "INFO" "初始化基于dnsmasq的DNS日志功能..."
 
     # 确保logs目录存在
@@ -45,6 +51,7 @@ init_dns_logging() {
     create_dns_processor_script
 
     log "INFO" "DNS日志功能初始化完成"
+    export DNS_LOG_INITIALIZED=1
 }
 
 # 设置DNS日志轮转
