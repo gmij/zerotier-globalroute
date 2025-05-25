@@ -137,10 +137,15 @@ check_system_requirements() {
 check_network_connectivity() {
     log "INFO" "检查网络连接..."
 
-    local test_hosts=("8.8.8.8" "1.1.1.1" "223.5.5.5")
+    # 快速测试：检查是否有默认路由
+    if ! ip route | grep -q "^default"; then
+        log "WARN" "未检测到默认路由，跳过网络连接测试"
+        return 0
+    fi
+
+    local test_hosts=("8.8.8.8" "1.1.1.1")
     local success_count=0
-    local timeout=2  # 减少超时时间
-    local max_tests=2  # 最多测试2个主机就足够了
+    local max_tests=1  # 减少到只测试1个主机
 
     local test_count=0
     for host in "${test_hosts[@]}"; do
@@ -148,31 +153,28 @@ check_network_connectivity() {
             break
         fi
 
-        log "DEBUG" "测试连接到 $host..."
+        log "DEBUG" "快速测试连接到 $host..."
 
-        # 使用更快的网络测试方法
-        if timeout "$timeout" ping -c 1 -W 1 "$host" &>/dev/null; then
+        # 使用简单的 ping 测试，快速失败
+        if ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
             ((success_count++))
             log "DEBUG" "连接到 $host 成功"
+            break  # 一旦成功就立即退出
         else
-            log "DEBUG" "连接到 $host 失败"
+            log "DEBUG" "ping 到 $host 失败"
         fi
 
         ((test_count++))
-
-        # 如果已经有一个成功，就可以继续了
-        if [ "$success_count" -ge 1 ] && [ "$DEBUG_MODE" != "1" ]; then
-            break
-        fi
     done
 
     log "DEBUG" "网络连接检查结果：$success_count/$test_count"
 
     if [ "$success_count" -eq 0 ]; then
-        log "WARN" "网络连接检查失败，但继续执行（可能是防火墙阻止了 ICMP）"
+        log "WARN" "网络连接检查失败，但继续执行（可能是防火墙阻止了 ICMP 或网络配置特殊）"
+        log "INFO" "如果您确认网络正常，可以忽略此警告"
         return 0  # 不阻止脚本继续执行
     else
-        log "SUCCESS" "网络连接正常 ($success_count/$test_count)"
+        log "SUCCESS" "网络连接正常"
     fi
 
     return 0
@@ -246,10 +248,14 @@ check_system_environment() {
     check_system_requirements
 
     # 网络连接检查（调试模式下显示更多信息）
-    if [ "$DEBUG_MODE" = "1" ]; then
-        log "DEBUG" "调试模式：详细网络连接检查..."
+    if [ "$SKIP_NETWORK_CHECK" = "1" ]; then
+        log "INFO" "跳过网络连接检查（用户指定）"
+    else
+        if [ "$DEBUG_MODE" = "1" ]; then
+            log "DEBUG" "调试模式：详细网络连接检查..."
+        fi
+        check_network_connectivity
     fi
-    check_network_connectivity
 
     check_disk_space 50
 
@@ -320,20 +326,24 @@ get_zt_network() {
         local prefix=$(echo "$ip_info" | awk '{print $2}' | cut -d'/' -f2)
 
         if [ -n "$network" ] && [ -n "$prefix" ]; then
-            # 计算网络地址
-            local network_addr=$(ipcalc -n "$network/$prefix" 2>/dev/null | cut -d'=' -f2)
-            if [ -n "$network_addr" ]; then
-                echo "$network_addr/$prefix"
-            else
-                # 备用方法：使用 ip route 获取
-                local route_network=$(ip route | grep "$interface" | grep -v default | head -1 | awk '{print $1}')
-                if [ -n "$route_network" ]; then
-                    echo "$route_network"
-                else
-                    # 如果无法计算，使用原始格式
-                    echo "$network/$prefix"
+            # 尝试使用 ipcalc 计算网络地址
+            if command -v ipcalc >/dev/null 2>&1; then
+                local network_addr=$(ipcalc -n "$network/$prefix" 2>/dev/null | cut -d'=' -f2)
+                if [ -n "$network_addr" ]; then
+                    echo "$network_addr/$prefix"
+                    return 0
                 fi
             fi
+
+            # 备用方法1：使用 ip route 获取
+            local route_network=$(ip route | grep "$interface" | grep -v default | head -1 | awk '{print $1}')
+            if [ -n "$route_network" ]; then
+                echo "$route_network"
+                return 0
+            fi
+
+            # 备用方法2：直接返回接口地址和前缀
+            echo "$network/$prefix"
         else
             log "WARN" "无法解析接口 $interface 的网络信息"
             echo ""

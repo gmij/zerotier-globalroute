@@ -18,6 +18,7 @@ GFWLIST_MODE=0
 DNS_LOGGING=1
 UPDATE_MODE=0
 RESTART_MODE=0
+SKIP_NETWORK_CHECK=0
 
 # 按依赖顺序加载功能模块
 source "$SCRIPT_DIR/cmd/utils.sh"      # 基础工具函数
