@@ -161,6 +161,27 @@ configure_nat_rules() {
     fi
 }
 
+# 配置转发规则
+configure_forward_rules() {
+    local zt_interface="$1"
+    local wan_interface="$2"
+    local zt_network="$3"
+
+    log "INFO" "配置转发规则..."
+
+    # 允许从ZeroTier网络到WAN接口的转发
+    iptables -A FORWARD -i "$zt_interface" -o "$wan_interface" -j ACCEPT
+
+    # 允许已建立的连接和相关连接从WAN接口返回到ZeroTier网络
+    iptables -A FORWARD -i "$wan_interface" -o "$zt_interface" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+    # 在自定义链中添加转发规则
+    iptables -A ZT-FWD -i "$zt_interface" -o "$wan_interface" -j ACCEPT
+    iptables -A ZT-FWD -i "$wan_interface" -o "$zt_interface" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+    log "INFO" "转发规则配置完成"
+}
+
 # 配置GFW规则
 configure_gfw_rules() {
     local zt_interface="$1"
@@ -254,13 +275,80 @@ configure_squid_rules() {
 configure_dns_logging_rules() {
     local zt_interface="$1"
 
-    log "INFO" "配置DNS日志规则..."
+    log "INFO" "配置DNS日志相关规则..."
+    # DNS日志规则通过dnsmasq实现，这里无需添加额外的iptables规则
+}
 
-    # DNS日志规则 - 记录DNS查询
-    iptables -A INPUT -i "$zt_interface" -p udp --dport 53 -j LOG --log-prefix "DNS-IN: " --log-level 6
-    iptables -A OUTPUT -o "$zt_interface" -p udp --sport 53 -j LOG --log-prefix "DNS-OUT: " --log-level 6
-    iptables -A FORWARD -i "$zt_interface" -p udp --dport 53 -j LOG --log-prefix "DNS-FWD-IN: " --log-level 6
-    iptables -A FORWARD -o "$zt_interface" -p udp --sport 53 -j LOG --log-prefix "DNS-FWD-OUT: " --log-level 6
+# 配置GFWList分流规则
+configure_gfwlist_rules() {
+    local zt_interface="$1"
+    local wan_interface="$2"
+
+    log "INFO" "配置GFWList分流规则..."
+
+    # 检查ipset是否已安装
+    if ! command -v ipset >/dev/null 2>&1; then
+        log "ERROR" "ipset未安装，无法配置GFWList分流"
+        return 1
+    fi
+
+    # 创建gfwlist ipset（如果不存在）
+    ipset list gfwlist >/dev/null 2>&1 || {
+        ipset create gfwlist hash:ip hashsize 4096
+        log "DEBUG" "创建ipset: gfwlist"
+    }
+
+    # 添加iptables规则，对GFWList中的IP进行标记
+    iptables -t mangle -A PREROUTING -i "$zt_interface" -m set --match-set gfwlist dst -j MARK --set-mark 1
+    iptables -t nat -A POSTROUTING -s "$zt_network" -m mark --mark 1 -o "$wan_interface" -j MASQUERADE
+
+    log "INFO" "GFWList分流规则配置完成"
+}
+
+# 配置IPv6规则
+configure_ipv6_rules() {
+    local zt_interface="$1"
+    local wan_interface="$2"
+
+    log "INFO" "配置IPv6规则..."
+
+    # 检查ip6tables是否可用
+    if ! command -v ip6tables >/dev/null 2>&1; then
+        log "WARN" "ip6tables未安装，跳过IPv6规则配置"
+        return 1
+    fi
+
+    # 基本IPv6防火墙规则
+    ip6tables -F
+    ip6tables -t nat -F
+
+    # 默认策略
+    ip6tables -P INPUT DROP
+    ip6tables -P FORWARD DROP
+    ip6tables -P OUTPUT ACCEPT
+
+    # 允许本地连接
+    ip6tables -A INPUT -i lo -j ACCEPT
+
+    # 允许已建立连接的返回流量
+    ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+    # 允许ICMPv6（对IPv6必要）
+    ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
+
+    # 允许ZeroTier接口的传入流量
+    ip6tables -A INPUT -i "$zt_interface" -j ACCEPT
+
+    # 配置转发规则
+    ip6tables -A FORWARD -i "$zt_interface" -o "$wan_interface" -j ACCEPT
+    ip6tables -A FORWARD -i "$wan_interface" -o "$zt_interface" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+    # 配置NAT（如果需要）
+    if command -v ip6tables-nat >/dev/null 2>&1; then
+        ip6tables -t nat -A POSTROUTING -o "$wan_interface" -j MASQUERADE
+    fi
+
+    log "INFO" "IPv6规则配置完成"
 }
 
 # 保存防火墙规则
