@@ -76,17 +76,37 @@ main() {
 detect_network_environment() {
     log "INFO" "检测网络环境..."
 
+    # 在调试模式下显示当前网络接口信息
+    if [ "$DEBUG_MODE" = "1" ]; then
+        show_network_interfaces
+    fi
+
     # 检测ZeroTier接口
     if [ -z "$ZT_INTERFACE" ]; then
+        log "DEBUG" "自动检测 ZeroTier 接口..."
         ZT_INTERFACE=$(detect_zt_interface)
         if [ -z "$ZT_INTERFACE" ]; then
             handle_error "未找到 ZeroTier 网络接口，请确认已加入网络"
+        elif [ "$ZT_INTERFACE" = "multiple" ]; then
+            # 处理多个接口的情况
+            echo -e "${YELLOW}检测到多个 ZeroTier 接口:${NC}"
+            for i in "${!ZT_MULTIPLE_INTERFACES[@]}"; do
+                echo "  $((i+1)). ${ZT_MULTIPLE_INTERFACES[i]}"
+            done
+            read -p "请选择要使用的接口编号: " choice
+            if [ "$choice" -ge 1 ] && [ "$choice" -le "${#ZT_MULTIPLE_INTERFACES[@]}" ]; then
+                ZT_INTERFACE="${ZT_MULTIPLE_INTERFACES[$((choice-1))]}"
+                log "INFO" "用户选择接口: $ZT_INTERFACE"
+            else
+                handle_error "无效的选择"
+            fi
         fi
     fi
     log "INFO" "使用 ZeroTier 接口: $ZT_INTERFACE"
 
     # 检测WAN接口
     if [ -z "$WAN_INTERFACE" ]; then
+        log "DEBUG" "自动检测 WAN 接口..."
         WAN_INTERFACE=$(detect_wan_interface)
         if [ -z "$WAN_INTERFACE" ]; then
             handle_error "未能检测到外网接口"
@@ -94,12 +114,32 @@ detect_network_environment() {
     fi
     log "INFO" "使用外网接口: $WAN_INTERFACE"
 
+    # 验证接口是否存在
+    if ! ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
+        handle_error "ZeroTier 接口 $ZT_INTERFACE 不存在"
+    fi
+
+    if ! ip link show "$WAN_INTERFACE" >/dev/null 2>&1; then
+        handle_error "外网接口 $WAN_INTERFACE 不存在"
+    fi
+
     # 获取网络信息
+    log "DEBUG" "获取网络信息..."
     ZT_NETWORK=$(get_zt_network "$ZT_INTERFACE")
     WAN_IP=$(get_interface_ip "$WAN_INTERFACE")
 
     log "INFO" "ZeroTier 网络: $ZT_NETWORK"
     log "INFO" "外网 IP: $WAN_IP"
+
+    # 在调试模式下显示详细信息
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "网络环境详细信息:"
+        log "DEBUG" "  ZeroTier 接口: $ZT_INTERFACE"
+        log "DEBUG" "  ZeroTier 网络: $ZT_NETWORK"
+        log "DEBUG" "  WAN 接口: $WAN_INTERFACE"
+        log "DEBUG" "  WAN IP: $WAN_IP"
+        log "DEBUG" "  MTU 设置: $ZT_MTU"
+    fi
 }
 
 # 配置网关

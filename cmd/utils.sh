@@ -139,23 +139,40 @@ check_network_connectivity() {
 
     local test_hosts=("8.8.8.8" "1.1.1.1" "223.5.5.5")
     local success_count=0
+    local timeout=2  # 减少超时时间
+    local max_tests=2  # 最多测试2个主机就足够了
 
+    local test_count=0
     for host in "${test_hosts[@]}"; do
-        if ping -c 1 -W 3 "$host" &>/dev/null; then
+        if [ "$test_count" -ge "$max_tests" ]; then
+            break
+        fi
+
+        log "DEBUG" "测试连接到 $host..."
+
+        # 使用更快的网络测试方法
+        if timeout "$timeout" ping -c 1 -W 1 "$host" &>/dev/null; then
             ((success_count++))
             log "DEBUG" "连接到 $host 成功"
         else
             log "DEBUG" "连接到 $host 失败"
         fi
+
+        ((test_count++))
+
+        # 如果已经有一个成功，就可以继续了
+        if [ "$success_count" -ge 1 ] && [ "$DEBUG_MODE" != "1" ]; then
+            break
+        fi
     done
 
+    log "DEBUG" "网络连接检查结果：$success_count/$test_count"
+
     if [ "$success_count" -eq 0 ]; then
-        log "ERROR" "网络连接检查失败，请检查网络设置"
-        return 1
-    elif [ "$success_count" -lt 2 ]; then
-        log "WARN" "网络连接不稳定，可能影响某些功能"
+        log "WARN" "网络连接检查失败，但继续执行（可能是防火墙阻止了 ICMP）"
+        return 0  # 不阻止脚本继续执行
     else
-        log "SUCCESS" "网络连接正常"
+        log "SUCCESS" "网络连接正常 ($success_count/$test_count)"
     fi
 
     return 0
@@ -227,7 +244,13 @@ check_system_environment() {
     # 这些检查不能失败，否则脚本无法继续
     check_permissions
     check_system_requirements
+
+    # 网络连接检查（调试模式下显示更多信息）
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "调试模式：详细网络连接检查..."
+    fi
     check_network_connectivity
+
     check_disk_space 50
 
     # 检查关键服务（使用更宽松的错误处理）
@@ -248,6 +271,9 @@ check_system_environment() {
     fi
 
     # 检查可选服务（不会导致脚本退出）
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "检查可选服务状态..."
+    fi
     check_service_status "iptables" 0 || true
     check_service_status "dnsmasq" 0 || true
 
@@ -270,4 +296,141 @@ prepare_dirs() {
     touch "$ERROR_LOG_FILE" && chmod 644 "$ERROR_LOG_FILE"
 
     log "DEBUG" "目录结构准备完成"
+}
+
+# 网络信息获取函数
+
+# 获取 ZeroTier 接口的网络地址
+get_zt_network() {
+    local interface="$1"
+
+    if [ -z "$interface" ]; then
+        log "ERROR" "get_zt_network: 接口名称不能为空"
+        return 1
+    fi
+
+    log "DEBUG" "获取接口 $interface 的网络信息..."
+
+    # 获取接口的 IP 地址和网络
+    local ip_info=$(ip addr show "$interface" 2>/dev/null | grep 'inet ' | head -1)
+
+    if [ -n "$ip_info" ]; then
+        # 提取网络地址 (例如：192.168.192.0/24)
+        local network=$(echo "$ip_info" | awk '{print $2}' | cut -d'/' -f1)
+        local prefix=$(echo "$ip_info" | awk '{print $2}' | cut -d'/' -f2)
+
+        if [ -n "$network" ] && [ -n "$prefix" ]; then
+            # 计算网络地址
+            local network_addr=$(ipcalc -n "$network/$prefix" 2>/dev/null | cut -d'=' -f2)
+            if [ -n "$network_addr" ]; then
+                echo "$network_addr/$prefix"
+            else
+                # 备用方法：使用 ip route 获取
+                local route_network=$(ip route | grep "$interface" | grep -v default | head -1 | awk '{print $1}')
+                if [ -n "$route_network" ]; then
+                    echo "$route_network"
+                else
+                    # 如果无法计算，使用原始格式
+                    echo "$network/$prefix"
+                fi
+            fi
+        else
+            log "WARN" "无法解析接口 $interface 的网络信息"
+            echo ""
+        fi
+    else
+        log "WARN" "接口 $interface 没有配置 IP 地址"
+        echo ""
+    fi
+}
+
+# 获取接口的 IP 地址
+get_interface_ip() {
+    local interface="$1"
+
+    if [ -z "$interface" ]; then
+        log "ERROR" "get_interface_ip: 接口名称不能为空"
+        return 1
+    fi
+
+    log "DEBUG" "获取接口 $interface 的 IP 地址..."
+
+    # 获取接口的第一个 IPv4 地址
+    local ip=$(ip addr show "$interface" 2>/dev/null | grep 'inet ' | head -1 | awk '{print $2}' | cut -d'/' -f1)
+
+    if [ -n "$ip" ]; then
+        log "DEBUG" "接口 $interface IP: $ip"
+        echo "$ip"
+    else
+        log "WARN" "接口 $interface 没有配置 IP 地址"
+        echo ""
+    fi
+}
+
+# 测试网关连通性
+test_gateway_connectivity() {
+    log "INFO" "测试网关连通性..."
+
+    local test_count=0
+    local success_count=0
+
+    # 测试基本网络连通性
+    local test_hosts=("8.8.8.8" "1.1.1.1")
+
+    for host in "${test_hosts[@]}"; do
+        ((test_count++))
+        log "DEBUG" "测试连接到 $host..."
+
+        if ping -c 1 -W 2 "$host" &>/dev/null; then
+            ((success_count++))
+            log "DEBUG" "连接到 $host 成功"
+        else
+            log "DEBUG" "连接到 $host 失败"
+        fi
+    done
+
+    # 测试 ZeroTier 接口连通性
+    if [ -n "$ZT_INTERFACE" ]; then
+        ((test_count++))
+        local zt_ip=$(get_interface_ip "$ZT_INTERFACE")
+        if [ -n "$zt_ip" ]; then
+            if ping -c 1 -W 2 -I "$ZT_INTERFACE" "$zt_ip" &>/dev/null; then
+                ((success_count++))
+                log "DEBUG" "ZeroTier 接口 $ZT_INTERFACE 连通性正常"
+            else
+                log "WARN" "ZeroTier 接口 $ZT_INTERFACE 连通性异常"
+            fi
+        else
+            log "WARN" "ZeroTier 接口 $ZT_INTERFACE 没有 IP 地址"
+        fi
+    fi
+
+    # 评估结果
+    if [ "$success_count" -gt 0 ]; then
+        log "SUCCESS" "网关连通性测试完成 ($success_count/$test_count 成功)"
+        return 0
+    else
+        log "WARN" "网关连通性测试未通过 ($success_count/$test_count 成功)"
+        return 1
+    fi
+}
+
+# 显示网络接口信息（调试用）
+show_network_interfaces() {
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "当前网络接口信息:"
+        echo "============ 网络接口列表 ============"
+        ip -o link show | while read -r line; do
+            local if_name=$(echo "$line" | awk -F': ' '{print $2}' | cut -d'@' -f1)
+            local if_state=$(echo "$line" | grep -o 'state [A-Z]*' | awk '{print $2}')
+            echo "接口: $if_name, 状态: $if_state"
+
+            # 显示 IP 地址
+            local ip_addr=$(ip addr show "$if_name" 2>/dev/null | grep 'inet ' | head -1 | awk '{print $2}')
+            if [ -n "$ip_addr" ]; then
+                echo "  IP: $ip_addr"
+            fi
+        done
+        echo "===================================="
+    fi
 }

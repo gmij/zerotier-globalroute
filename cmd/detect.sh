@@ -54,24 +54,41 @@ show_help() {
 
 # 自动检测 ZeroTier 接口
 detect_zt_interface() {
+    log "DEBUG" "开始检测 ZeroTier 接口..."
+
     # 方法1：检查网络接口名称
+    log "DEBUG" "方法1：检查网络接口名称..."
     local zt_interfaces=($(ip link show | grep -o 'zt[a-zA-Z0-9]*' | sort -u))
+
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "发现的 ZeroTier 接口: ${zt_interfaces[*]}"
+    fi
 
     # 方法2：如果方法1未找到任何接口，检查 ZeroTier 程序状态
     if [ ${#zt_interfaces[@]} -eq 0 ] && command -v zerotier-cli >/dev/null; then
+        log "DEBUG" "方法2：通过 zerotier-cli 检查..."
         local zt_info=$(zerotier-cli listnetworks 2>/dev/null)
         if [ $? -eq 0 ]; then
             # 从 zerotier-cli 输出提取接口名称
             zt_interfaces=($(echo "$zt_info" | awk 'NR>1 {print $8}' | grep -v '-' | sort -u))
+            if [ "$DEBUG_MODE" = "1" ]; then
+                log "DEBUG" "zerotier-cli 输出: $zt_info"
+                log "DEBUG" "提取的接口: ${zt_interfaces[*]}"
+            fi
+        else
+            log "DEBUG" "无法获取 ZeroTier 网络信息"
         fi
     fi
 
     # 处理检测结果
     if [ ${#zt_interfaces[@]} -eq 0 ]; then
+        log "DEBUG" "未检测到 ZeroTier 接口"
         echo ""  # 没有找到
     elif [ ${#zt_interfaces[@]} -eq 1 ]; then
+        log "DEBUG" "检测到单个 ZeroTier 接口: ${zt_interfaces[0]}"
         echo "${zt_interfaces[0]}"  # 只找到一个接口
     else
+        log "DEBUG" "检测到多个 ZeroTier 接口: ${zt_interfaces[*]}"
         # 找到多个接口，返回一个空字符串，稍后会要求用户选择
         echo "multiple"
         ZT_MULTIPLE_INTERFACES=("${zt_interfaces[@]}")
@@ -80,17 +97,37 @@ detect_zt_interface() {
 
 # 自动检测 WAN 接口
 detect_wan_interface() {
+    log "DEBUG" "开始检测 WAN 接口..."
+
     # 检查默认路由使用的接口
+    log "DEBUG" "方法1：检查默认路由..."
     local default_if=$(ip route | grep default | grep -v "linkdown\|tun\|zt\|docker\|veth" | head -1 | awk '{print $5}')
 
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "默认路由信息:"
+        ip route | grep default | head -3
+        log "DEBUG" "检测到的默认接口: $default_if"
+    fi
+
     if [ -n "$default_if" ]; then
+        log "DEBUG" "使用默认路由接口: $default_if"
         echo "$default_if"
     else
         # 备用方法：查找非 lo、zt、tun 等的第一个活动接口
+        log "DEBUG" "方法2：查找活动接口..."
         local first_if=$(ip -o link show up | grep -v 'lo\|zt\|tun\|docker\|veth' | head -1 | awk -F': ' '{print $2}' | cut -d '@' -f1)
+
+        if [ "$DEBUG_MODE" = "1" ]; then
+            log "DEBUG" "活动接口列表:"
+            ip -o link show up | head -5
+            log "DEBUG" "筛选后的第一个接口: $first_if"
+        fi
+
         if [ -n "$first_if" ]; then
+            log "DEBUG" "使用第一个活动接口: $first_if"
             echo "$first_if"
         else
+            log "DEBUG" "使用默认接口名: eth0"
             echo "eth0"  # 默认值
         fi
     fi
