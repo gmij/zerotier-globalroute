@@ -87,10 +87,13 @@ detect_network_environment() {
     if [ -z "$ZT_INTERFACE" ]; then
         log "DEBUG" "自动检测 ZeroTier 接口..."
         # 获取接口名并去除可能的额外字符
-        ZT_INTERFACE=$(detect_zt_interface)
-
-        # 确保变量没有不可见字符和额外日志
-        ZT_INTERFACE=$(echo "$ZT_INTERFACE" | tr -d '\r\n \t')
+        # 使用临时变量避免污染
+        local detected_zt_interface
+        detected_zt_interface=$(detect_zt_interface 2>/dev/null)
+        
+        # 确保变量没有不可见字符和额外日志，只保留接口名或"multiple"
+        ZT_INTERFACE=$(echo "$detected_zt_interface" | grep -o '^[a-zA-Z0-9]*$\|^multiple$' | head -1)
+        
         log "DEBUG" "检测到的 ZeroTier 接口: '$ZT_INTERFACE'"
 
         if [ -z "$ZT_INTERFACE" ]; then
@@ -114,12 +117,16 @@ detect_network_environment() {
             fi
         fi
     fi
-    log "INFO" "使用 ZeroTier 接口: $ZT_INTERFACE"
-
-    # 检测WAN接口
+    log "INFO" "使用 ZeroTier 接口: $ZT_INTERFACE"    # 检测WAN接口
     if [ -z "$WAN_INTERFACE" ]; then
         log "DEBUG" "自动检测 WAN 接口..."
-        WAN_INTERFACE=$(detect_wan_interface)
+        # 使用临时变量避免污染
+        local detected_wan_interface
+        detected_wan_interface=$(detect_wan_interface 2>/dev/null)
+        
+        # 确保变量只包含接口名
+        WAN_INTERFACE=$(echo "$detected_wan_interface" | grep -o '^[a-zA-Z0-9]*$' | head -1)
+        
         if [ -z "$WAN_INTERFACE" ]; then
             handle_error "未能检测到外网接口"
         fi
