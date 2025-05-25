@@ -26,3 +26,10 @@ applyTo: "**/*.sh"
 - 防火墙规则使用自定义链：`ZT-IN`、`ZT-FWD`
 - 自动检测网络接口
 - 支持 IPv6 配置（可选）
+
+## 对话记录管理
+- 每次 GitHub Copilot 对话的修改记录存放在 `vibe.history/` 目录
+- 记录文件命名格式：`YYYY-MM-DD_HH-MM-SS_conversation.md`
+- 每个记录包含：对话主题、用户需求、AI 响应、修改文件列表、修改小结
+- 使用 `cmd/conversation.sh` 模块管理对话记录
+- 模板文件：`templates/conversation-record.md.template`

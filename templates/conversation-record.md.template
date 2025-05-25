@@ -1,0 +1,53 @@
+# GitHub Copilot 对话记录
+
+**时间**: {{TIMESTAMP}}
+**日期**: {{DATE}}
+**会话ID**: {{SESSION_ID}}
+
+## 对话主题
+
+{{CONVERSATION_TOPIC}}
+
+## 用户需求
+
+{{USER_REQUEST}}
+
+## AI 响应摘要
+
+{{AI_RESPONSE_SUMMARY}}
+
+## 修改的文件
+
+{{MODIFIED_FILES_LIST}}
+
+## 修改小结
+
+{{MODIFICATION_SUMMARY}}
+
+### 修改类型
+- {{MODIFICATION_TYPE}}
+
+### 技术要点
+{{TECHNICAL_POINTS}}
+
+### 遵循的编码规范
+- [x] Shell 脚本规范 (#!/bin/bash, 大写变量名)
+- [x] 日志函数使用 (log "INFO" "消息")
+- [x] 配置文件集中管理
+- [x] 软链接部署方式
+
+## 代码变更详情
+
+{{CODE_CHANGES_DETAIL}}
+
+## 测试建议
+
+{{TESTING_SUGGESTIONS}}
+
+## 注意事项
+
+{{NOTES_AND_WARNINGS}}
+
+---
+*记录生成时间: {{RECORD_GENERATED_TIME}}*
+*生成方式: GitHub Copilot 自动记录*
