@@ -48,6 +48,7 @@ REQUIRED_FILES=(
     "cmd/firewall.sh"
     "cmd/gfwlist.sh"
     "cmd/dnslog.sh"
+    "cmd/rclocal.sh"
     "config/default.conf"
 )
 
