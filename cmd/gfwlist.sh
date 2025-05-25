@@ -61,30 +61,41 @@ download_gfwlist() {
     # 设置更新时间
     echo "更新时间: $(date)" > "${SCRIPT_GFWLIST_LOCAL}.info"
     
-    # 创建软链接到系统目录
-    ln -sf "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL" 2>/dev/null || {
-        # 如果直接创建软链接失败，尝试用sudo
-        sudo ln -sf "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL" 2>/dev/null || {
-            # 如果软链接创建失败，直接复制文件（备用方案）
-            log "WARN" "无法创建软链接，使用复制替代"
-            cp -f "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL"
+    # 创建软链接到系统目录，先检查源和目标是否相同
+    if [ "$SCRIPT_GFWLIST_LOCAL" != "$GFWLIST_LOCAL" ]; then
+        # 确保目标目录存在
+        mkdir -p $(dirname "$GFWLIST_LOCAL") 2>/dev/null
+        ln -sf "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL" 2>/dev/null || {
+            # 如果直接创建软链接失败，尝试用sudo
+            sudo ln -sf "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL" 2>/dev/null || {
+                # 如果软链接创建失败，直接复制文件（备用方案）
+                log "INFO" "使用复制代替软链接"
+                cp -f "$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_LOCAL"
+            }
         }
-    }
+    fi
     
     # 创建域名列表的软链接
-    ln -sf "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS" 2>/dev/null || {
-        sudo ln -sf "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS" 2>/dev/null || {
-            log "WARN" "无法创建域名列表软链接，使用复制替代"
-            cp -f "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS"
+    if [ "$SCRIPT_GFWLIST_DOMAINS" != "$GFWLIST_DOMAINS" ]; then
+        mkdir -p $(dirname "$GFWLIST_DOMAINS") 2>/dev/null
+        ln -sf "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS" 2>/dev/null || {
+            sudo ln -sf "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS" 2>/dev/null || {
+                log "INFO" "使用复制代替域名列表软链接"
+                cp -f "$SCRIPT_GFWLIST_DOMAINS" "$GFWLIST_DOMAINS"
+            }
         }
-    }
+    fi
     
     # 创建info文件的软链接
-    ln -sf "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info" 2>/dev/null || {
-        sudo ln -sf "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info" 2>/dev/null || {
-            cp -f "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info"
+    if [ "${SCRIPT_GFWLIST_LOCAL}.info" != "${GFWLIST_LOCAL}.info" ]; then
+        mkdir -p $(dirname "${GFWLIST_LOCAL}.info") 2>/dev/null
+        ln -sf "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info" 2>/dev/null || {
+            sudo ln -sf "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info" 2>/dev/null || {
+                log "INFO" "使用复制代替info文件软链接"
+                cp -f "${SCRIPT_GFWLIST_LOCAL}.info" "${GFWLIST_LOCAL}.info"
+            }
         }
-    }
+    fi
     
     return 0
 }
@@ -129,9 +140,32 @@ setup_dnsmasq() {
         echo "log-queries=extra" >> "$SCRIPT_DNSMASQ_CONF"
         echo "log-facility=${SCRIPT_DIR}/logs/dnsmasq.log" >> "$SCRIPT_DNSMASQ_CONF"
         echo "log-async=50" >> "$SCRIPT_DNSMASQ_CONF"
+        
+        # 确保日志目录和文件存在且有正确权限
         mkdir -p "${SCRIPT_DIR}/logs"
         touch "${SCRIPT_DIR}/logs/dnsmasq.log"
         chmod 644 "${SCRIPT_DIR}/logs/dnsmasq.log"
+        
+        # 确保dnsmasq可以写入日志目录
+        chown -R dnsmasq:dnsmasq "${SCRIPT_DIR}/logs" 2>/dev/null || {
+            log "INFO" "尝试使用sudo设置日志目录权限"
+            sudo chown -R dnsmasq:dnsmasq "${SCRIPT_DIR}/logs" 2>/dev/null || {
+                log "INFO" "无法设置日志目录权限，尝试设置为所有用户可写"
+                chmod 777 "${SCRIPT_DIR}/logs"
+            }
+        }
+        
+        # 如果dnsmasq配置文件存在，确保日志配置正确
+        if [ -f "/etc/dnsmasq.conf" ]; then
+            # 确保dnsmasq的主配置文件不会覆盖我们的日志设置
+            sed -i '/^log-facility=/d' "/etc/dnsmasq.conf"
+            sed -i '/^log-queries/d' "/etc/dnsmasq.conf"
+            
+            # 添加一个配置，让dnsmasq加载我们的配置文件
+            if ! grep -q "conf-dir=/etc/dnsmasq.d" "/etc/dnsmasq.conf"; then
+                echo "conf-dir=/etc/dnsmasq.d" >> "/etc/dnsmasq.conf"
+            fi
+        fi
     fi
     echo "" >> "$SCRIPT_DNSMASQ_CONF"
     
@@ -208,11 +242,15 @@ setup_dnsmasq() {
         fi
     fi
     
-    # 创建配置文件软链接
-    ln -sf "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF" 2>/dev/null || {
-        sudo ln -sf "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF" 2>/dev/null || {
-            log "WARN" "无法创建dnsmasq配置软链接，使用复制替代"
-            cp -f "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF"
+    # 创建配置文件软链接，先检查源和目标是否相同
+    if [ "$SCRIPT_DNSMASQ_CONF" != "$DNSMASQ_CONF" ]; then
+        # 确保目标目录存在
+        mkdir -p $(dirname "$DNSMASQ_CONF") 2>/dev/null
+        ln -sf "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF" 2>/dev/null || {
+            sudo ln -sf "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF" 2>/dev/null || {
+                log "INFO" "使用复制代替dnsmasq配置软链接"
+                cp -f "$SCRIPT_DNSMASQ_CONF" "$DNSMASQ_CONF"
+            }
         }
     }
     
@@ -382,11 +420,26 @@ if curl -s -o "\$SCRIPT_GFWLIST_LOCAL" "$GFWLIST_URL" || wget -q -O "\$SCRIPT_GF
         fi
     fi
     
-    # 更新软链接或复制文件
-    ln -sf "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt" 2>/dev/null || cp -f "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt"
-    ln -sf "\$SCRIPT_GFWLIST_DOMAINS" "/etc/zt-gateway/gfwlist_domains.txt" 2>/dev/null || cp -f "\$SCRIPT_GFWLIST_DOMAINS" "/etc/zt-gateway/gfwlist_domains.txt"
-    ln -sf "\${SCRIPT_GFWLIST_LOCAL}.info" "/etc/zt-gateway/gfwlist.txt.info" 2>/dev/null || cp -f "\${SCRIPT_GFWLIST_LOCAL}.info" "/etc/zt-gateway/gfwlist.txt.info"
-    ln -sf "\$SCRIPT_DNSMASQ_CONF" "\$DNSMASQ_CONF" 2>/dev/null || cp -f "\$SCRIPT_DNSMASQ_CONF" "\$DNSMASQ_CONF"
+    # 更新软链接或复制文件，先检查源和目标是否相同
+    if [ "\$SCRIPT_GFWLIST_LOCAL" != "/etc/zt-gateway/gfwlist.txt" ]; then
+        mkdir -p /etc/zt-gateway/ 2>/dev/null
+        ln -sf "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt" 2>/dev/null || cp -f "\$SCRIPT_GFWLIST_LOCAL" "/etc/zt-gateway/gfwlist.txt"
+    fi
+    
+    if [ "\$SCRIPT_GFWLIST_DOMAINS" != "/etc/zt-gateway/gfwlist_domains.txt" ]; then
+        mkdir -p /etc/zt-gateway/ 2>/dev/null
+        ln -sf "\$SCRIPT_GFWLIST_DOMAINS" "/etc/zt-gateway/gfwlist_domains.txt" 2>/dev/null || cp -f "\$SCRIPT_GFWLIST_DOMAINS" "/etc/zt-gateway/gfwlist_domains.txt"
+    fi
+    
+    if [ "\${SCRIPT_GFWLIST_LOCAL}.info" != "/etc/zt-gateway/gfwlist.txt.info" ]; then
+        mkdir -p /etc/zt-gateway/ 2>/dev/null
+        ln -sf "\${SCRIPT_GFWLIST_LOCAL}.info" "/etc/zt-gateway/gfwlist.txt.info" 2>/dev/null || cp -f "\${SCRIPT_GFWLIST_LOCAL}.info" "/etc/zt-gateway/gfwlist.txt.info"
+    fi
+    
+    if [ "\$SCRIPT_DNSMASQ_CONF" != "\$DNSMASQ_CONF" ]; then
+        mkdir -p $(dirname "\$DNSMASQ_CONF") 2>/dev/null
+        ln -sf "\$SCRIPT_DNSMASQ_CONF" "\$DNSMASQ_CONF" 2>/dev/null || cp -f "\$SCRIPT_DNSMASQ_CONF" "\$DNSMASQ_CONF"
+    fi
     
     # 重启 dnsmasq
     systemctl restart dnsmasq
@@ -400,11 +453,15 @@ EOL
     # 设置执行权限
     chmod +x "$SCRIPT_GFWLIST_UPDATE_SCRIPT"
     
-    # 创建软链接到系统cron目录
-    ln -sf "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null || {
-        sudo ln -sf "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null || {
-            log "WARN" "无法创建自动更新脚本软链接，使用复制替代"
-            cp -f "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT"
+    # 创建软链接到系统cron目录，先检查源和目标是否相同
+    if [ "$SCRIPT_GFWLIST_UPDATE_SCRIPT" != "$SYSTEM_GFWLIST_UPDATE_SCRIPT" ]; then
+        # 确保目标目录存在
+        mkdir -p $(dirname "$SYSTEM_GFWLIST_UPDATE_SCRIPT") 2>/dev/null
+        ln -sf "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null || {
+            sudo ln -sf "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT" 2>/dev/null || {
+                log "INFO" "使用复制代替自动更新脚本软链接"
+                cp -f "$SCRIPT_GFWLIST_UPDATE_SCRIPT" "$SYSTEM_GFWLIST_UPDATE_SCRIPT"
+            }
         }
     }
     
@@ -686,11 +743,15 @@ init_custom_domains() {
         echo "#*.example.org" >> "$SCRIPT_CUSTOM_DOMAINS"
     fi
     
-    # 创建软链接到系统目录
-    ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
-        sudo ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
-            log "WARN" "无法创建自定义域名列表软链接，使用复制替代"
-            cp -f "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS"
+    # 创建软链接到系统目录，先检查源和目标是否相同
+    if [ "$SCRIPT_CUSTOM_DOMAINS" != "$CUSTOM_DOMAINS" ]; then
+        # 确保目标目录存在
+        mkdir -p $(dirname "$CUSTOM_DOMAINS") 2>/dev/null
+        ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
+            sudo ln -sf "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS" 2>/dev/null || {
+                log "INFO" "使用复制代替自定义域名列表软链接"
+                cp -f "$SCRIPT_CUSTOM_DOMAINS" "$CUSTOM_DOMAINS"
+            }
         }
     }
     

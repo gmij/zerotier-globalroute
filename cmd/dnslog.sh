@@ -52,66 +52,126 @@ if [ -z "$DNSMASQ_LOG" ] || [ -z "$DNS_LOG_FILE" ] || [ -z "$SCRIPT_DIR" ]; then
     exit 1
 fi
 
+# 记录启动信息到syslog
+echo "ZT DNS Processor 已启动，监控日志: $DNSMASQ_LOG -> $DNS_LOG_FILE" | logger -t zt-dns-processor
+
 # 检测环境并确保logs目录存在
 mkdir -p "$SCRIPT_DIR/logs"
 touch "$DNS_LOG_FILE"
 
-# 使用tail -f监控dnsmasq日志文件
-tail -F -n0 "$DNSMASQ_LOG" 2>/dev/null | while read -r line; do
-    # 过滤只处理DNS查询记录
-    if echo "$line" | grep -q "query\[" || echo "$line" | grep -q "forwarded" || echo "$line" | grep -q "cached"; then
-        # 提取时间戳 (dnsmasq格式: Mon Jan  1 12:34:56 2023)
-        timestamp=$(echo "$line" | awk '{print $1, $2, $3, $4, $5}')
-        # 转换成我们的格式 YYYY-MM-DD HH:MM:SS
-        formatted_time=$(date -d "$timestamp" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
-        if [ -z "$formatted_time" ]; then
+# 确保检查dnsmasq进程和日志是否存在
+check_and_restart_dnsmasq() {
+    if ! systemctl is-active --quiet dnsmasq; then
+        echo "dnsmasq服务未运行，正在尝试重启..." | logger -t zt-dns-processor
+        systemctl restart dnsmasq
+        sleep 2
+    fi
+    
+    # 如果日志文件不存在，创建它
+    if [ ! -f "$DNSMASQ_LOG" ]; then
+        echo "dnsmasq日志文件不存在，创建新的日志文件" | logger -t zt-dns-processor
+        touch "$DNSMASQ_LOG"
+        chmod 644 "$DNSMASQ_LOG"
+        
+        # 如果还需要配置dnsmasq启用日志
+        if ! grep -q "log-queries" /etc/dnsmasq.d/zt-gfwlist.conf; then
+            echo "添加dnsmasq日志配置..." | logger -t zt-dns-processor
+            echo "log-queries=extra" >> /etc/dnsmasq.d/zt-gfwlist.conf
+            echo "log-facility=$DNSMASQ_LOG" >> /etc/dnsmasq.d/zt-gfwlist.conf
+            echo "log-async=50" >> /etc/dnsmasq.d/zt-gfwlist.conf
+            systemctl restart dnsmasq
+        fi
+    fi
+}
+
+# 启动前检查dnsmasq状态
+check_and_restart_dnsmasq
+
+# 使用tail -F监控dnsmasq日志文件 (-F会在文件被轮转后重新打开)
+tail -F "$DNSMASQ_LOG" 2>/dev/null | while read -r line; do
+    # 过滤只处理DNS查询记录 (考虑各种可能的日志格式)
+    if echo "$line" | grep -q "query\|forwarded\|cached\|reply"; then
+        # 提取时间戳 (支持多种dnsmasq日志格式)
+        # 尝试从行开始提取标准时间戳 (May 11 12:34:56)
+        if [[ "$line" =~ ^[A-Z][a-z]{2}\ +[0-9]+\ +[0-9]{2}:[0-9]{2}:[0-9]{2} ]]; then
+            timestamp=$(echo "$line" | awk '{print $1, $2, $3}')
+            formatted_time=$(date -d "$(date +%Y) $timestamp" +"%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        # 尝试从行开始提取带年份的时间戳 (2023-05-11 12:34:56)
+        elif [[ "$line" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ +[0-9]{2}:[0-9]{2}:[0-9]{2} ]]; then
+            formatted_time=$(echo "$line" | awk '{print $1, $2}')
+        # 如果都失败，使用当前时间
+        else
             formatted_time=$(date +"%Y-%m-%d %H:%M:%S")
         fi
         
-        # 提取DNS查询信息
-        if echo "$line" | grep -q "query\["; then
-            # 提取域名、查询类型和源IP
+        # 提取DNS查询信息 - 支持多种dnsmasq日志格式
+        domain=""
+        query_type=""
+        source_ip=""
+        
+        # 尝试匹配不同的查询日志格式
+        if [[ "$line" =~ query\[[A-Z]* ]]; then
+            # 标准查询格式: "query[A] example.com from 192.168.1.100"
             domain=$(echo "$line" | sed -n 's/.*query\[[A-Z]*\] \([^ ]*\).*/\1/p' | sed 's/\.$//')
             query_type=$(echo "$line" | sed -n 's/.*query\[\([A-Z]*\)\].*/\1/p')
             source_ip=$(echo "$line" | grep -o -E 'from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | cut -d' ' -f2)
+        elif [[ "$line" =~ "query:" ]]; then
+            # 替代格式: "query: example.com IN A from 192.168.1.100"
+            domain=$(echo "$line" | awk '{print $2}' | sed 's/\.$//')
+            query_type=$(echo "$line" | awk '{print $4}')
+            source_ip=$(echo "$line" | grep -o -E 'from [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
+        elif [[ "$line" =~ "forwarded" ]]; then
+            # 转发记录: "forwarded example.com to 8.8.8.8"
+            domain=$(echo "$line" | awk '{print $2}' | sed 's/\.$//')
+            query_type="解析"  # 无法确定具体类型
+            source_ip="unknown"  # 转发记录通常无源IP
+        fi
+        
+        # 调试日志
+        if [ -n "$domain" ] && [ "$domain" != "" ]; then
+            echo "解析到DNS查询: $domain ($query_type) 来自 $source_ip" | logger -t zt-dns-processor
             
-            if [ -n "$domain" ] && [ -n "$source_ip" ]; then
-                # 确定该域名是否需要转发
-                forwarded=0
-                forwarded_text="未转发"
+            # 确定该域名是否需要转发
+            forwarded=0
+            forwarded_text="未转发"
+            
+            # 检查是否是自定义域名列表中的域名
+            if [ -f "$SCRIPT_DIR/config/custom_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/custom_domains.txt" 2>/dev/null; then
+                forwarded=1
+                forwarded_text="已转发(自定义域名)"
+            # 然后检查是否在GFW列表中
+            elif [ -f "$SCRIPT_DIR/config/gfwlist_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/gfwlist_domains.txt" 2>/dev/null; then
+                forwarded=1
+                forwarded_text="已转发(GFW列表)"
+            # 检查域名是否是通配符匹配
+            elif [ -f "$SCRIPT_DIR/config/custom_domains.txt" ]; then
+                # 提取根域名和父域名
+                root_domain=$(echo "$domain" | awk -F. '{if (NF>1) {print $(NF-1)"."$NF} else {print $NF}}')
+                parent_domain=$(echo "$domain" | sed -E 's/^[^.]*\.//' 2>/dev/null)
                 
-                # 检查是否是自定义域名列表中的域名
-                if [ -f "$SCRIPT_DIR/config/custom_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/custom_domains.txt"; then
+                # 检查通配符匹配
+                if [ -n "$root_domain" ] && grep -q "\*\.$root_domain" "$SCRIPT_DIR/config/custom_domains.txt" 2>/dev/null; then
                     forwarded=1
-                    forwarded_text="已转发(自定义域名)"
-                # 然后检查是否在GFW列表中
-                elif [ -f "$SCRIPT_DIR/config/gfwlist_domains.txt" ] && grep -q "^$domain$" "$SCRIPT_DIR/config/gfwlist_domains.txt"; then
+                    forwarded_text="已转发(通配符匹配)"
+                elif [ -n "$parent_domain" ] && grep -q "\*\.$parent_domain" "$SCRIPT_DIR/config/custom_domains.txt" 2>/dev/null; then
                     forwarded=1
-                    forwarded_text="已转发(GFW列表)"
-                # 检查域名是否是通配符匹配
-                elif [ -f "$SCRIPT_DIR/config/custom_domains.txt" ]; then
-                    # 提取根域名
-                    root_domain=$(echo "$domain" | awk -F. '{if (NF>1) {print $(NF-1)"."$NF} else {print $NF}}')
-                    parent_domain=$(echo "$domain" | sed "s/^[^.]*\.//")
-                    
-                    # 检查通配符匹配
-                    if grep -q "\*\.$root_domain" "$SCRIPT_DIR/config/custom_domains.txt" || 
-                       grep -q "\*\.$parent_domain" "$SCRIPT_DIR/config/custom_domains.txt"; then
-                        forwarded=1
-                        forwarded_text="已转发(通配符匹配)"
-                    fi
-                # 最后检查通过IP判断
-                elif command -v ipset &>/dev/null && ipset list gfwlist &>/dev/null; then
-                    # 尝试解析域名获取IP
-                    ip=$(dig +short "$domain" 2>/dev/null | head -1)
-                    if [ -n "$ip" ] && ipset test gfwlist "$ip" 2>/dev/null; then
-                        forwarded=1
-                        forwarded_text="已转发(IP匹配)"
-                    fi
+                    forwarded_text="已转发(通配符匹配)"
                 fi
-                
-                # 记录查询
+            # 最后检查通过IP判断
+            elif command -v ipset &>/dev/null && ipset list gfwlist &>/dev/null 2>/dev/null; then
+                # 尝试解析域名获取IP
+                ip=$(dig +short "$domain" 2>/dev/null | head -1)
+                if [ -n "$ip" ] && ipset test gfwlist "$ip" 2>/dev/null; then
+                    forwarded=1
+                    forwarded_text="已转发(IP匹配)"
+                fi
+            fi
+            
+            # 记录查询
+            if [ -n "$source_ip" ] && [ "$source_ip" != "unknown" ]; then
                 echo "[$formatted_time] $source_ip $domain $query_type $forwarded_text" >> "$DNS_LOG_FILE"
+            else
+                echo "[$formatted_time] - $domain $query_type $forwarded_text" >> "$DNS_LOG_FILE"
             fi
         fi
     fi
@@ -130,30 +190,64 @@ After=network.target zerotier-one.service dnsmasq.service
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/zt-dns-processor.sh $DNSMASQ_LOG_FILE $DNS_LOG_FILE $SCRIPT_DIR
-Restart=on-failure
+Restart=always
 RestartSec=5
 Nice=10
 IOSchedulingClass=idle
 CPUSchedulingPolicy=idle
 MemoryLimit=50M
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+    # 检查dnsmasq日志配置
+    if ! grep -q "log-queries" /etc/dnsmasq.d/zt-gfwlist.conf 2>/dev/null; then
+        log "INFO" "添加dnsmasq日志配置..."
+        echo "log-queries=extra" >> /etc/dnsmasq.d/zt-gfwlist.conf
+        echo "log-facility=$DNSMASQ_LOG_FILE" >> /etc/dnsmasq.d/zt-gfwlist.conf
+        echo "log-async=50" >> /etc/dnsmasq.d/zt-gfwlist.conf
+    fi
+    
+    # 确保日志目录权限正确
+    chown -R dnsmasq:dnsmasq "${SCRIPT_DIR}/logs" 2>/dev/null || {
+        log "INFO" "尝试使用sudo设置日志目录权限"
+        sudo chown -R dnsmasq:dnsmasq "${SCRIPT_DIR}/logs" 2>/dev/null || {
+            log "INFO" "无法设置日志目录权限，尝试设置为所有用户可写"
+            chmod 777 "${SCRIPT_DIR}/logs"
+        }
+    }
+    
     # 确保dnsmasq使用我们的配置
+    log "INFO" "重启dnsmasq服务..."
     systemctl restart dnsmasq
     
     # 启用并启动日志处理服务
+    log "INFO" "启动DNS日志处理服务..."
     systemctl daemon-reload
     systemctl enable zt-dns-processor
     systemctl restart zt-dns-processor
     
+    # 检查服务状态
+    sleep 2
+    if systemctl is-active --quiet zt-dns-processor; then
+        log "INFO" "DNS日志处理服务已成功启动"
+    else
+        log "WARN" "DNS日志处理服务启动失败，尝试排查问题..."
+        log "INFO" "请检查日志: journalctl -u zt-dns-processor"
+    fi
+    
     # 停止并禁用旧的DNS日志服务（如果存在）
     if systemctl is-active --quiet zt-dns-logger; then
+        log "INFO" "停用旧的DNS日志服务..."
         systemctl stop zt-dns-logger
         systemctl disable zt-dns-logger
     fi
+    
+    # 添加一条示例记录到日志文件，确认一切正常
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] 系统 example.com A 测试记录" >> "$DNS_LOG_FILE"
     
     log "INFO" "基于dnsmasq的DNS日志功能已初始化"
     return 0
@@ -211,8 +305,17 @@ show_dns_logs() {
     not_forwarded=$(grep "未转发" "$DNS_LOG_FILE" | wc -l)
     
     echo "总查询次数: $total_queries"
-    echo "已转发查询: $forwarded_queries ($(awk -v f=$forwarded_queries -v t=$total_queries 'BEGIN{printf "%.1f%%", f/t*100}'))"
-    echo "未转发查询: $not_forwarded ($(awk -v n=$not_forwarded -v t=$total_queries 'BEGIN{printf "%.1f%%", n/t*100}'))"
+    
+    # 避免除以零的错误
+    if [ "$total_queries" -gt 0 ]; then
+        forwarded_percent=$(awk -v f=$forwarded_queries -v t=$total_queries 'BEGIN{printf "%.1f%%", f/t*100}')
+        not_forwarded_percent=$(awk -v n=$not_forwarded -v t=$total_queries 'BEGIN{printf "%.1f%%", n/t*100}')
+        echo "已转发查询: $forwarded_queries ($forwarded_percent)"
+        echo "未转发查询: $not_forwarded ($not_forwarded_percent)"
+    else
+        echo "已转发查询: $forwarded_queries (0.0%)"
+        echo "未转发查询: $not_forwarded (0.0%)"
+    fi
     
     # 显示转发类型统计
     echo -e "\n${YELLOW}转发类型统计:${NC}"
