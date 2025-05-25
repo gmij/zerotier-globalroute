@@ -79,8 +79,6 @@ trap cleanup_bundle EXIT
 # 创建目录结构
 mkdir -p "$BUNDLE_TEMP_DIR"/{cmd,config,templates,logs}
 
-EOF
-
 # 嵌入函数
 embed_script() {
     local src_file="$1"
@@ -88,16 +86,19 @@ embed_script() {
 
     echo "嵌入文件: $src_file"
 
+    # 使用不同的分隔符来避免冲突
+    local delimiter="SCRIPT_$(echo "$dest_name" | tr '/' '_' | tr '.' '_')_END"
+
     cat >> "$OUTPUT_FILE" << EOF
 
 # ===== $dest_name =====
-cat > "\$SCRIPT_DIR/$dest_name" << 'EMBEDDED_FILE_EOF'
+cat > "\$SCRIPT_DIR/$dest_name" << '$delimiter'
 EOF
 
     cat "$SCRIPT_DIR/$src_file" >> "$OUTPUT_FILE"
 
-    cat >> "$OUTPUT_FILE" << 'EOF'
-EMBEDDED_FILE_EOF
+    cat >> "$OUTPUT_FILE" << EOF
+$delimiter
 
 EOF
 }
