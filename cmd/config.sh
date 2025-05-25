@@ -313,17 +313,34 @@ process_template() {
         done < "$CONFIG_FILE"
     else
         log "DEBUG" "配置文件不存在或未指定，使用环境变量进行基本替换"
-        # 使用环境变量进行基本替换 - 使用不同分隔符避免路径斜杠问题
-        sed -i "s|{{SCRIPT_DIR}}|${SCRIPT_DIR}|g" "$temp_file"
-        sed -i "s/{{ZT_INTERFACE}}/${ZT_INTERFACE}/g" "$temp_file"
-        sed -i "s/{{WAN_INTERFACE}}/${WAN_INTERFACE}/g" "$temp_file"
-        sed -i "s/{{ZT_NETWORK}}/${ZT_NETWORK}/g" "$temp_file"
-        sed -i "s/{{ZT_MTU}}/${ZT_MTU}/g" "$temp_file"
-        sed -i "s/{{IPV6_ENABLED}}/${IPV6_ENABLED}/g" "$temp_file"
-        sed -i "s/{{GFWLIST_MODE}}/${GFWLIST_MODE}/g" "$temp_file"
-        sed -i "s/{{DNS_LOGGING}}/${DNS_LOGGING}/g" "$temp_file"
+        # 使用更安全的方式进行变量替换，避免特殊字符问题
 
-        # 网络优化参数替换（使用默认值，先替换长变量名避免部分匹配）
+        # 使用 awk 进行安全的字符串替换
+        awk -v script_dir="$SCRIPT_DIR" \
+            -v zt_interface="$ZT_INTERFACE" \
+            -v wan_interface="$WAN_INTERFACE" \
+            -v zt_network="$ZT_NETWORK" \
+            -v zt_mtu="$ZT_MTU" \
+            -v ipv6_enabled="$IPV6_ENABLED" \
+            -v gfwlist_mode="$GFWLIST_MODE" \
+            -v dns_logging="$DNS_LOGGING" \
+            -v generation_time="$(date '+%Y-%m-%d %H:%M:%S')" \
+            -v config_version="${CONFIG_VERSION:-3.1}" \
+            '{
+                gsub(/\{\{SCRIPT_DIR\}\}/, script_dir)
+                gsub(/\{\{ZT_INTERFACE\}\}/, zt_interface)
+                gsub(/\{\{WAN_INTERFACE\}\}/, wan_interface)
+                gsub(/\{\{ZT_NETWORK\}\}/, zt_network)
+                gsub(/\{\{ZT_MTU\}\}/, zt_mtu)
+                gsub(/\{\{IPV6_ENABLED\}\}/, ipv6_enabled)
+                gsub(/\{\{GFWLIST_MODE\}\}/, gfwlist_mode)
+                gsub(/\{\{DNS_LOGGING\}\}/, dns_logging)
+                gsub(/GENERATION_TIME/, generation_time)
+                gsub(/CONFIG_VERSION/, config_version)
+                print
+            }' "$temp_file" > "${temp_file}.tmp" && mv "${temp_file}.tmp" "$temp_file"
+
+        # 网络优化参数替换（使用默认值）
         sed -i "s/UDP_TIMEOUT_STREAM/${UDP_TIMEOUT_STREAM:-180}/g" "$temp_file"
         sed -i "s/TCP_TIMEOUT_ESTABLISHED/${TCP_TIMEOUT_ESTABLISHED:-7200}/g" "$temp_file"
         sed -i "s/CONNTRACK_MAX/${CONNTRACK_MAX:-131072}/g" "$temp_file"
@@ -331,15 +348,16 @@ process_template() {
         sed -i "s/SYN_BACKLOG/${SYN_BACKLOG:-4096}/g" "$temp_file"
         sed -i "s/RMEM_MAX/${RMEM_MAX:-16777216}/g" "$temp_file"
         sed -i "s/WMEM_MAX/${WMEM_MAX:-16777216}/g" "$temp_file"
-
-        # 特殊处理包含空格的变量 - 使用不同分隔符避免空格问题
-        sed -i "s|TCP_RMEM|${TCP_RMEM:-4096 87380 16777216}|g" "$temp_file"
-        sed -i "s|TCP_WMEM|${TCP_WMEM:-4096 65536 16777216}|g" "$temp_file"
         sed -i "s/TCP_CONGESTION_CONTROL/${TCP_CONGESTION_CONTROL:-bbr}/g" "$temp_file"
 
-        # 时间和版本信息替换 - 使用管道分隔符避免特殊字符问题
-        sed -i "s|GENERATION_TIME|$(date '+%Y-%m-%d %H:%M:%S')|g" "$temp_file"
-        sed -i "s/CONFIG_VERSION/${CONFIG_VERSION:-2.0.0}/g" "$temp_file"
+        # 特殊处理包含空格的变量 - 使用 awk 更安全
+        awk -v tcp_rmem="${TCP_RMEM:-4096 87380 16777216}" \
+            -v tcp_wmem="${TCP_WMEM:-4096 65536 16777216}" \
+            '{
+                gsub(/TCP_RMEM/, tcp_rmem)
+                gsub(/TCP_WMEM/, tcp_wmem)
+                print
+            }' "$temp_file" > "${temp_file}.tmp" && mv "${temp_file}.tmp" "$temp_file"
     fi
 
     # 处理特殊占位符

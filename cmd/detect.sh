@@ -17,7 +17,8 @@ show_help() {
     echo "  -b, --backup     备份当前 iptables 规则"
     echo ""
     echo "高级选项:"
-    echo "  -d, --debug      启用调试模式"
+    echo "  -d, --debug      启用调试模式（默认已启用）"
+    echo "  -q, --quiet      启用静默模式，仅显示关键信息"
     echo "  -r, --restart    重新应用现有配置"
     echo "  -u, --update     更新网关配置但保留接口设置"
     echo "  --ipv6           启用 IPv6 支持"
@@ -63,7 +64,7 @@ detect_zt_interface() {
             log "DEBUG" "方法1：检查网络接口名称..."
         } >&2
     fi
-    
+
     local result=""
 
     # 获取接口列表并保存原始输出供调试

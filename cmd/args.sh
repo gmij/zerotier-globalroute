@@ -8,7 +8,7 @@
 ZT_INTERFACE=""
 WAN_INTERFACE=""
 ZT_MTU=1400
-DEBUG_MODE=0
+DEBUG_MODE=1  # 默认启用调试模式，显示详细安装日志
 IPV6_ENABLED=0
 GFWLIST_MODE=0
 DNS_LOGGING=1  # 默认启用DNS日志
@@ -66,6 +66,10 @@ parse_arguments() {
             -d|--debug)
                 DEBUG_MODE=1
                 echo -e "${YELLOW}===== 调试模式已启用 - 将显示详细日志 =====${NC}"
+                ;;
+            -q|--quiet)
+                DEBUG_MODE=0
+                echo -e "${BLUE}===== 静默模式已启用 - 仅显示关键信息 =====${NC}"
                 ;;
             -r|--restart)
                 RESTART_MODE=1

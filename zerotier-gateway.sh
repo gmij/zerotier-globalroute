@@ -11,7 +11,7 @@ set -e  # 在错误时退出
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # 初始化全局变量
-DEBUG_MODE=0
+DEBUG_MODE=1  # 默认启用调试模式，显示详细安装日志
 ZT_MTU=1400
 IPV6_ENABLED=0
 GFWLIST_MODE=0
@@ -90,10 +90,10 @@ detect_network_environment() {
         # 使用临时变量避免污染
         local detected_zt_interface
         detected_zt_interface=$(detect_zt_interface 2>/dev/null)
-        
+
         # 确保变量没有不可见字符和额外日志，只保留接口名或"multiple"
         ZT_INTERFACE=$(echo "$detected_zt_interface" | grep -o '^[a-zA-Z0-9]*$\|^multiple$' | head -1)
-        
+
         log "DEBUG" "检测到的 ZeroTier 接口: '$ZT_INTERFACE'"
 
         if [ -z "$ZT_INTERFACE" ]; then
@@ -123,10 +123,10 @@ detect_network_environment() {
         # 使用临时变量避免污染
         local detected_wan_interface
         detected_wan_interface=$(detect_wan_interface 2>/dev/null)
-        
+
         # 确保变量只包含接口名
         WAN_INTERFACE=$(echo "$detected_wan_interface" | grep -o '^[a-zA-Z0-9]*$' | head -1)
-        
+
         if [ -z "$WAN_INTERFACE" ]; then
             handle_error "未能检测到外网接口"
         fi
