@@ -21,7 +21,23 @@ ERROR_LOG_FILE="${SCRIPT_DIR}/logs/zt-gateway-error.log"
 log() {
     local level="$1"
     local message="$2"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+   # 清理接口名称（移除不可见字符）
+clean_interface_name() {
+    local interface="$1"
+    echo "$interface" | tr -d '\r\n \t'
+}
+
+# 获取接口 IP 地址
+get_interface_ip() {
+    local interface="$1"
+
+    if [ -z "$interface" ]; then
+        log "ERROR" "get_interface_ip: 接口名称不能为空"
+        return 1
+    fi
+
+    # 清理接口名称
+    interface=$(clean_interface_name "$interface")imestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local log_entry="[$timestamp] [$level] $message"
 
     # 确保日志目录存在
@@ -323,6 +339,35 @@ prepare_dirs() {
     log "DEBUG" "目录结构准备完成"
 }
 
+# 检查并显示 ZeroTier 状态信息（调试用）
+check_zerotier_status() {
+    log "DEBUG" "检查 ZeroTier 状态..."
+
+    # 检查 zerotier-one 服务状态
+    if command -v systemctl &>/dev/null; then
+        local service_status=$(systemctl status zerotier-one 2>&1)
+        log "DEBUG" "ZeroTier 服务状态:
+$(echo "$service_status" | head -5)"
+    fi
+
+    # 检查 zerotier-cli 输出
+    if command -v zerotier-cli &>/dev/null; then
+        local cli_status=$(zerotier-cli status 2>&1)
+        log "DEBUG" "ZeroTier CLI 状态: $cli_status"
+
+        local networks=$(zerotier-cli listnetworks 2>&1)
+        log "DEBUG" "ZeroTier 网络列表:
+$(echo "$networks" | head -10)"
+    else
+        log "DEBUG" "zerotier-cli 命令不可用"
+    fi
+
+    # 检查 ZeroTier 相关接口
+    local interfaces=$(ip link | grep -E 'zt[a-zA-Z0-9]*')
+    log "DEBUG" "ZeroTier 网络接口:
+$(echo "$interfaces" | grep -v "does not exist")"
+}
+
 # 网络信息获取函数
 
 # 获取 ZeroTier 接口的网络地址
@@ -334,7 +379,9 @@ get_zt_network() {
         return 1
     fi
 
-    log "DEBUG" "获取接口 $interface 的网络信息..."
+    # 清理接口名称
+    interface=$(clean_interface_name "$interface")
+    log "DEBUG" "获取接口 '$interface' 的网络信息..."
 
     # 获取接口的 IP 地址和网络
     local ip_info=$(ip addr show "$interface" 2>/dev/null | grep 'inet ' | head -1)

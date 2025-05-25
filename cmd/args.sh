@@ -14,6 +14,7 @@ GFWLIST_MODE=0
 DNS_LOGGING=1  # 默认启用DNS日志
 RESTART_MODE=0
 UPDATE_MODE=0
+SKIP_NETWORK_CHECK=0
 
 # 显示版本信息
 show_version() {
@@ -64,6 +65,7 @@ parse_arguments() {
                 ;;
             -d|--debug)
                 DEBUG_MODE=1
+                echo -e "${YELLOW}===== 调试模式已启用 - 将显示详细日志 =====${NC}"
                 ;;
             -r|--restart)
                 RESTART_MODE=1
@@ -81,6 +83,7 @@ parse_arguments() {
             --skip-network)
                 SKIP_NETWORK_CHECK=1
                 log "INFO" "网络连接检查已禁用（用户指定）"
+                echo -e "${YELLOW}===== 网络连接检查已禁用 =====${NC}"
                 ;;
             --stats)
                 init_config_system
@@ -174,6 +177,10 @@ parse_arguments() {
                 ;;
             --no-dns-log)
                 DNS_LOGGING=0
+                ;;
+            --list-zt-interfaces)
+                list_zt_interfaces
+                exit 0
                 ;;
             --config-status)
                 init_config_system

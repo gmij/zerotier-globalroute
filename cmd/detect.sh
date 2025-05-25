@@ -25,6 +25,7 @@ show_help() {
     echo "  --test           测试网关连通性"
     echo "  --uninstall      卸载网关配置"
     echo "  --skip-network   跳过网络连接检查（如果 ping 被防火墙阻止）"
+    echo "  --list-zt-interfaces 列出所有 ZeroTier 接口和状态（诊断用）"
     echo ""
     echo "GFW List 选项:"
     echo "  -g, --gfwlist        启用 GFW List 分流模式 (仅 GFW List 中的域名走全局路由)"
@@ -56,13 +57,20 @@ show_help() {
 # 自动检测 ZeroTier 接口
 detect_zt_interface() {
     log "DEBUG" "开始检测 ZeroTier 接口..."
+    local result=""
 
     # 方法1：检查网络接口名称
     log "DEBUG" "方法1：检查网络接口名称..."
-    local zt_interfaces=($(ip link show | grep -o 'zt[a-zA-Z0-9]*' | sort -u))
+
+    # 获取接口列表并保存原始输出供调试
+    local raw_interfaces=$(ip link show | grep -E 'zt[a-zA-Z0-9]*')
+    local zt_interfaces=($(echo "$raw_interfaces" | grep -o 'zt[a-zA-Z0-9]*' | sort -u))
 
     if [ "$DEBUG_MODE" = "1" ]; then
-        log "DEBUG" "发现的 ZeroTier 接口: ${zt_interfaces[*]}"
+        log "DEBUG" "原始接口信息：
+$raw_interfaces"
+        log "DEBUG" "提取的 ZeroTier 接口: ${zt_interfaces[*]}"
+        log "DEBUG" "检测到的接口数量: ${#zt_interfaces[@]}"
     fi
 
     # 方法2：如果方法1未找到任何接口，检查 ZeroTier 程序状态
@@ -84,16 +92,19 @@ detect_zt_interface() {
     # 处理检测结果
     if [ ${#zt_interfaces[@]} -eq 0 ]; then
         log "DEBUG" "未检测到 ZeroTier 接口"
-        echo ""  # 没有找到
+        result=""  # 没有找到
     elif [ ${#zt_interfaces[@]} -eq 1 ]; then
         log "DEBUG" "检测到单个 ZeroTier 接口: ${zt_interfaces[0]}"
-        echo "${zt_interfaces[0]}"  # 只找到一个接口
+        result="${zt_interfaces[0]}"  # 只找到一个接口
     else
         log "DEBUG" "检测到多个 ZeroTier 接口: ${zt_interfaces[*]}"
-        # 找到多个接口，返回一个空字符串，稍后会要求用户选择
-        echo "multiple"
+        # 找到多个接口，返回一个特殊标记，稍后会要求用户选择
+        result="multiple"
         ZT_MULTIPLE_INTERFACES=("${zt_interfaces[@]}")
     fi
+
+    # 确保返回的是干净的接口名（没有额外的空格或换行符）
+    echo -n "$result"
 }
 
 # 自动检测 WAN 接口
@@ -132,4 +143,51 @@ detect_wan_interface() {
             echo "eth0"  # 默认值
         fi
     fi
+}
+
+# 列出所有 ZeroTier 接口详细信息（便于诊断）
+list_zt_interfaces() {
+    echo -e "${GREEN}===== ZeroTier 接口列表 =====${NC}"
+
+    # 尝试从网络接口名称查找
+    echo "方法1: 从网络接口名称查找:"
+    local zt_by_name=($(ip link show | grep -o 'zt[a-zA-Z0-9]*' | sort -u))
+
+    if [ ${#zt_by_name[@]} -gt 0 ]; then
+        for intf in "${zt_by_name[@]}"; do
+            local ip_addr=$(ip addr show "$intf" 2>/dev/null | grep 'inet ' | head -1 | awk '{print $2}')
+            local status=$(ip link show "$intf" 2>/dev/null | grep -o 'state [A-Z]*' | awk '{print $2}')
+            echo -e "  ${BLUE}$intf${NC}: IP=$ip_addr, 状态=$status"
+        done
+    else
+        echo "  未找到以 'zt' 开头的接口"
+    fi
+
+    # 尝试从 zerotier-cli 查找
+    if command -v zerotier-cli &>/dev/null; then
+        echo ""
+        echo "方法2: 从 zerotier-cli 查找:"
+        local cli_output=$(zerotier-cli listnetworks 2>&1)
+
+        if [[ "$cli_output" == *"200 listnetworks"* ]]; then
+            echo "$cli_output" | grep -v "^200" | while read -r line; do
+                if [ -n "$line" ]; then
+                    local netid=$(echo "$line" | awk '{print $3}')
+                    local name=$(echo "$line" | awk '{print $4}')
+                    local status=$(echo "$line" | awk '{print $6}')
+                    local device=$(echo "$line" | awk '{print $8}')
+                    local ip=$(echo "$line" | awk '{print $9}')
+
+                    echo -e "  ${YELLOW}$device${NC}: 网络=$netid ($name), 状态=$status, IP=$ip"
+                fi
+            done
+        else
+            echo "  zerotier-cli 错误或未加入任何网络: $cli_output"
+        fi
+    else
+        echo ""
+        echo "  zerotier-cli 命令不可用"
+    fi
+
+    echo ""
 }

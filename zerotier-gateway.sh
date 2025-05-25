@@ -80,13 +80,24 @@ detect_network_environment() {
     # 在调试模式下显示当前网络接口信息
     if [ "$DEBUG_MODE" = "1" ]; then
         show_network_interfaces
+    fi    # 调试模式下检查 ZeroTier 状态
+    if [ "$DEBUG_MODE" = "1" ]; then
+        check_zerotier_status
     fi
 
     # 检测ZeroTier接口
     if [ -z "$ZT_INTERFACE" ]; then
         log "DEBUG" "自动检测 ZeroTier 接口..."
+        # 获取接口名并去除可能的额外字符
         ZT_INTERFACE=$(detect_zt_interface)
+
+        # 确保变量没有不可见字符
+        ZT_INTERFACE=$(echo "$ZT_INTERFACE" | tr -d '\r\n \t')
+        log "DEBUG" "检测到的 ZeroTier 接口（清理后）: '$ZT_INTERFACE'"
+
         if [ -z "$ZT_INTERFACE" ]; then
+            # 在出错前再次检查 ZeroTier 状态
+            check_zerotier_status
             handle_error "未找到 ZeroTier 网络接口，请确认已加入网络"
         elif [ "$ZT_INTERFACE" = "multiple" ]; then
             # 处理多个接口的情况
@@ -97,6 +108,8 @@ detect_network_environment() {
             read -p "请选择要使用的接口编号: " choice
             if [ "$choice" -ge 1 ] && [ "$choice" -le "${#ZT_MULTIPLE_INTERFACES[@]}" ]; then
                 ZT_INTERFACE="${ZT_MULTIPLE_INTERFACES[$((choice-1))]}"
+                # 清理选择的接口名
+                ZT_INTERFACE=$(echo "$ZT_INTERFACE" | tr -d '\r\n \t')
                 log "INFO" "用户选择接口: $ZT_INTERFACE"
             else
                 handle_error "无效的选择"
@@ -113,19 +126,37 @@ detect_network_environment() {
             handle_error "未能检测到外网接口"
         fi
     fi
-    log "INFO" "使用外网接口: $WAN_INTERFACE"
+    log "INFO" "使用外网接口: $WAN_INTERFACE"    # 验证接口是否存在
+    log "DEBUG" "验证 ZeroTier 接口 '$ZT_INTERFACE' 是否存在..."
+    if [ -z "$ZT_INTERFACE" ]; then
+        handle_error "ZeroTier 接口名为空，检测失败"
+    fi
 
-    # 验证接口是否存在
+    # 显示调试信息，帮助诊断问题
+    if [ "$DEBUG_MODE" = "1" ]; then
+        log "DEBUG" "所有网络接口列表:"
+        ip link show | grep -E '^[0-9]+:' | cut -d' ' -f2 | tr -d ':'
+    fi
+
     if ! ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
-        handle_error "ZeroTier 接口 $ZT_INTERFACE 不存在"
+        handle_error "ZeroTier 接口 '$ZT_INTERFACE' 不存在，请检查接口名称是否正确"
+    else
+        log "DEBUG" "确认 ZeroTier 接口 '$ZT_INTERFACE' 存在"
     fi
 
+    log "DEBUG" "验证外网接口 '$WAN_INTERFACE' 是否存在..."
     if ! ip link show "$WAN_INTERFACE" >/dev/null 2>&1; then
-        handle_error "外网接口 $WAN_INTERFACE 不存在"
-    fi
+        handle_error "外网接口 '$WAN_INTERFACE' 不存在"
+    else
+        log "DEBUG" "确认外网接口 '$WAN_INTERFACE' 存在"
+    fi    # 获取网络信息
+    log "DEBUG" "获取网络信息..."
+
+    # 确保接口名称已清理
+    ZT_INTERFACE=$(clean_interface_name "$ZT_INTERFACE")
+    WAN_INTERFACE=$(clean_interface_name "$WAN_INTERFACE")
 
     # 获取网络信息
-    log "DEBUG" "获取网络信息..."
     ZT_NETWORK=$(get_zt_network "$ZT_INTERFACE")
     WAN_IP=$(get_interface_ip "$WAN_INTERFACE")
 
@@ -183,10 +214,11 @@ configure_gateway() {
     configure_network_interfaces
 
     # 配置功能模块
-    configure_feature_modules
-
-    # 配置防火墙规则
+    configure_feature_modules    # 配置防火墙规则
     log "INFO" "配置防火墙规则..."
+    # 再次确保接口名称清理（以防之前的清理结果被覆盖）
+    ZT_INTERFACE=$(clean_interface_name "$ZT_INTERFACE")
+    WAN_INTERFACE=$(clean_interface_name "$WAN_INTERFACE")
     setup_firewall "$ZT_INTERFACE" "$WAN_INTERFACE" "$ZT_NETWORK" "$IPV6_ENABLED" "$GFWLIST_MODE" "$DNS_LOGGING"
 
     # 配置系统服务
