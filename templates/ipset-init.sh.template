@@ -1,35 +1,86 @@
 #!/bin/bash
 #
 # ZeroTier 网关 ipset 初始化脚本
+# 生成时间: GENERATION_TIME
+# 配置版本: CONFIG_VERSION
 #
 
+# 日志函数
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1: $2"
+}
+
 # 创建 gfwlist ipset
-if ! ipset list gfwlist &>/dev/null; then
-    echo "创建 gfwlist ipset..."
-    ipset create gfwlist hash:ip timeout 86400
-      # 添加DNS以确保至少有一个IP在集合中
-    # 这样即使GFW列表为空也能有基本连接
-    ipset add gfwlist 223.5.5.5  # 阿里DNS主
-    ipset add gfwlist 223.6.6.6  # 阿里DNS备用
-    ipset add gfwlist 8.8.8.8    # Google DNS (备用)
-    ipset add gfwlist 1.1.1.1    # Cloudflare DNS (备用)
-fi
+create_gfwlist_ipset() {
+    if ! ipset list GFWLIST_IPSET &>/dev/null; then
+        log "INFO" "创建 GFWLIST_IPSET ipset..."
+        ipset create GFWLIST_IPSET hash:ip timeout IPSET_TIMEOUT
 
-# 如果存在保存的ipset数据，则恢复它
-if [ -f "/etc/sysconfig/ipset.conf" ]; then
-    echo "从配置文件恢复 ipset 数据..."
-    # 使用 -exist 选项，这样如果集合已存在，将会更新而不是尝试重新创建
-    ipset restore -exist < /etc/sysconfig/ipset.conf || {
-        echo "ipset restore 失败，尝试清除现有 ipset 后重新恢复..."
-        # 如果恢复失败，尝试先保存当前 ipset，然后清除，再恢复
-        ipset save > /tmp/ipset_backup.conf
-        ipset flush
-        ipset restore < /etc/sysconfig/ipset.conf || {
-            echo "恢复仍然失败，尝试从临时备份恢复..."
-            ipset restore < /tmp/ipset_backup.conf
-        }
-        rm -f /tmp/ipset_backup.conf
-    }
-fi
+        # 添加基础DNS服务器确保连通性
+        ipset add GFWLIST_IPSET DEFAULT_DNS_PRIMARY  # 主DNS
+        ipset add GFWLIST_IPSET DEFAULT_DNS_SECONDARY  # 备DNS
+        ipset add GFWLIST_IPSET FALLBACK_DNS_1    # 备用DNS 1
+        ipset add GFWLIST_IPSET FALLBACK_DNS_2    # 备用DNS 2
 
+        log "INFO" "GFWLIST_IPSET 创建完成"
+    else
+        log "INFO" "GFWLIST_IPSET 已存在"
+    fi
+}
+
+# 恢复 ipset 数据
+restore_ipset_data() {
+    local ipset_config="/etc/sysconfig/ipset.conf"
+
+    if [ -f "$ipset_config" ]; then
+        log "INFO" "从配置文件恢复 ipset 数据..."
+
+        # 使用 -exist 选项，更新现有集合而不是重新创建
+        if ipset restore -exist < "$ipset_config"; then
+            log "INFO" "ipset 数据恢复成功"
+        else
+            log "WARN" "ipset restore 失败，尝试备份和重新恢复..."
+            handle_restore_failure "$ipset_config"
+        fi
+    else
+        log "INFO" "未找到 ipset 配置文件，使用默认配置"
+    fi
+}
+
+# 处理恢复失败
+handle_restore_failure() {
+    local ipset_config="$1"
+    local backup_file="/tmp/ipset_backup_$(date +%s).conf"
+
+    # 备份当前 ipset
+    if ipset save > "$backup_file"; then
+        log "INFO" "当前 ipset 已备份到 $backup_file"
+    fi
+
+    # 清除并重试
+    ipset flush
+    if ipset restore < "$ipset_config"; then
+        log "INFO" "清除后恢复成功"
+        rm -f "$backup_file"
+    else
+        log "ERROR" "恢复仍然失败，尝试从备份恢复..."
+        if [ -f "$backup_file" ]; then
+            ipset restore < "$backup_file"
+            rm -f "$backup_file"
+        fi
+    fi
+}
+
+# 主执行流程
+main() {
+    log "INFO" "开始初始化 ipset..."
+
+    create_gfwlist_ipset
+    restore_ipset_data
+
+    log "INFO" "ipset 初始化完成"
+}
+
+# 执行主函数
+main "$@"
 exit 0

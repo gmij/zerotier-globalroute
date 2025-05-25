@@ -3,56 +3,73 @@
 # ZeroTier 网关监控和测试功能
 #
 
+# 从配置文件加载变量
+source_config_if_exists() {
+    if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+    fi
+}
+
 # 网关测试功能
 test_gateway() {
-    echo -e "${YELLOW}测试 ZeroTier 网关连通性...${NC}"
-    
-    # 加载配置
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-    else
-        handle_error "找不到配置文件，请先运行配置脚本"
+    log "INFO" "测试 ZeroTier 网关连通性..."
+
+    # 确保配置已加载
+    source_config_if_exists
+
+    if [ -z "$ZT_INTERFACE" ]; then
+        handle_error "找不到配置文件或ZeroTier接口配置，请先运行配置脚本"
     fi
-    
-    echo "1. 检查 ZeroTier 接口状态..."
+
+    local test_result=0
+
+    # 1. 检查 ZeroTier 接口状态
+    log "DEBUG" "检查 ZeroTier 接口状态..."
     if ! ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
-        echo -e "${RED}ZeroTier 接口 $ZT_INTERFACE 不存在${NC}"
-        return 1
+        log "ERROR" "ZeroTier 接口 $ZT_INTERFACE 不存在"
+        test_result=1
+    else
+        log "INFO" "ZeroTier 接口 $ZT_INTERFACE 状态正常"
     fi
-    
-    echo "2. 检查 IP 转发..."
+
+    # 2. 检查 IP 转发
+    log "DEBUG" "检查 IP 转发..."
     local ip_forward=$(sysctl -n net.ipv4.ip_forward)
     if [ "$ip_forward" != "1" ]; then
-        echo -e "${RED}IP 转发未启用${NC}"
-        return 1
-    fi
-    
-    echo "3. 测试 ZeroTier 接口连通性..."
-    ping -c 1 -I "$ZT_INTERFACE" 8.8.8.8 >/dev/null 2>&1
-    local ping_result=$?
-    if [ $ping_result -eq 0 ]; then
-        echo -e "${GREEN}从 ZeroTier 接口到外网连通性正常${NC}"
+        log "ERROR" "IP 转发未启用"
+        test_result=1
     else
-        echo -e "${RED}从 ZeroTier 接口到外网连通性异常${NC}"
+        log "INFO" "IP 转发已启用"
     fi
-    
-    echo "4. 检查 NAT 规则..."
+
+    # 3. 测试 ZeroTier 接口连通性
+    log "DEBUG" "测试 ZeroTier 接口连通性..."
+    if ping -c 1 -I "$ZT_INTERFACE" 8.8.8.8 >/dev/null 2>&1; then
+        log "INFO" "从 ZeroTier 接口到外网连通性正常"
+    else
+        log "ERROR" "从 ZeroTier 接口到外网连通性异常"
+        test_result=1
+    fi
+
+    # 4. 检查 NAT 规则
+    log "DEBUG" "检查 NAT 规则..."
     local nat_rules=$(iptables -t nat -L -v -n | grep MASQUERADE | wc -l)
     if [ "$nat_rules" -gt 0 ]; then
-        echo -e "${GREEN}NAT 规则配置正确${NC}"
+        log "INFO" "NAT 规则配置正确"
     else
-        echo -e "${RED}NAT 规则不存在${NC}"
-        return 1
+        log "ERROR" "NAT 规则不存在"
+        test_result=1
     fi
-    
-    echo "5. 检查 ZeroTier 服务状态..."
+
+    # 5. 检查 ZeroTier 服务状态
+    log "DEBUG" "检查 ZeroTier 服务状态..."
     if systemctl is-active --quiet zerotier-one; then
-        echo -e "${GREEN}ZeroTier 服务运行正常${NC}"
+        log "INFO" "ZeroTier 服务运行正常"
     else
         echo -e "${RED}ZeroTier 服务未运行${NC}"
         return 1
     fi
-    
+
     echo -e "${GREEN}网关基础检查完成${NC}"
     return 0
 }
@@ -60,31 +77,31 @@ test_gateway() {
 # 显示流量统计
 show_traffic_stats() {
     echo -e "${GREEN}===== ZeroTier 网关流量统计 =====${NC}"
-    
+
     # 加载配置
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
     fi
-    
+
     if [ -z "$ZT_INTERFACE" ] || ! ip link show "$ZT_INTERFACE" >/dev/null 2>&1; then
         handle_error "无法找到有效的 ZeroTier 接口"
     fi
-    
+
     # 获取流量统计
     local rx_bytes=$(cat /sys/class/net/$ZT_INTERFACE/statistics/rx_bytes)
     local tx_bytes=$(cat /sys/class/net/$ZT_INTERFACE/statistics/tx_bytes)
     local rx_packets=$(cat /sys/class/net/$ZT_INTERFACE/statistics/rx_packets)
     local tx_packets=$(cat /sys/class/net/$ZT_INTERFACE/statistics/tx_packets)
-    
+
     # 转换为可读形式
     local rx_mb=$(echo "scale=2; $rx_bytes/1048576" | bc)
     local tx_mb=$(echo "scale=2; $tx_bytes/1048576" | bc)
-    
+
     echo -e "${YELLOW}接口: $ZT_INTERFACE${NC}"
     echo "接收: $rx_mb MB ($rx_packets 数据包)"
     echo "发送: $tx_mb MB ($tx_packets 数据包)"
     echo ""
-    
+
     echo -e "${YELLOW}连接追踪:${NC}"
     if [ -f /proc/net/nf_conntrack ]; then
         echo "当前连接数: $(cat /proc/net/nf_conntrack | wc -l)"
@@ -94,7 +111,7 @@ show_traffic_stats() {
         echo "无法获取连接跟踪信息"
     fi
     echo ""
-    
+
     echo -e "${YELLOW}防火墙统计:${NC}"
     iptables -L -v -n | grep -E 'Chain INPUT|Chain FORWARD|Chain OUTPUT|Chain ZT-'
     echo ""
