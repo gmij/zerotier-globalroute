@@ -137,7 +137,6 @@ decode_and_create() {
 echo -e "${BLUE}开始解码文件...${NC}"
 
 EOF
-}
 
 # 开始添加 Base64 编码的文件内容
 echo -e "${YELLOW}添加 cmd 目录中的文件...${NC}"
