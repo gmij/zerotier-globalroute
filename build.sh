@@ -51,6 +51,40 @@ echo "项目文件检查完成"
 # 创建bundle文件
 echo "生成bundle脚本: $OUTPUT_FILE"
 
+# 保存原始SCRIPT_DIR
+SOURCE_DIR="$SCRIPT_DIR"
+
+# 嵌入函数（在构建时使用）
+embed_script() {
+    local src_file="$1"
+    local dest_name="$2"
+
+    echo "嵌入文件: $src_file -> $dest_name"
+
+    # 检查源文件是否存在
+    if [[ ! -f "$src_file" ]]; then
+        echo "错误: 源文件不存在: $src_file"
+        return 1
+    fi
+
+    # 使用不同的分隔符来避免冲突
+    local delimiter="SCRIPT_$(echo "$dest_name" | tr '/' '_' | tr '.' '_')_END"
+
+    cat >> "$OUTPUT_FILE" << EOF
+
+# ===== $dest_name =====
+cat > "\$SCRIPT_DIR/$dest_name" << '$delimiter'
+EOF
+
+    # 直接读取文件内容
+    cat "$src_file" >> "$OUTPUT_FILE"
+
+    cat >> "$OUTPUT_FILE" << EOF
+$delimiter
+
+EOF
+}
+
 # 创建bundle头部
 cat > "$OUTPUT_FILE" << 'EOF'
 #!/bin/bash
@@ -78,57 +112,33 @@ trap cleanup_bundle EXIT
 
 # 创建目录结构
 mkdir -p "$BUNDLE_TEMP_DIR"/{cmd,config,templates,logs}
-
-# 嵌入函数
-embed_script() {
-    local src_file="$1"
-    local dest_name="$2"
-
-    echo "嵌入文件: $src_file -> $dest_name"
-
-    # 使用不同的分隔符来避免冲突
-    local delimiter="SCRIPT_$(echo "$dest_name" | tr '/' '_' | tr '.' '_')_END"
-
-    cat >> "$OUTPUT_FILE" << EOF
-
-# ===== $dest_name =====
-cat > "\$SCRIPT_DIR/$dest_name" << '$delimiter'
 EOF
 
-    # 直接读取文件，不做路径拼接
-    cat "$src_file" >> "$OUTPUT_FILE"
-
-    cat >> "$OUTPUT_FILE" << EOF
-$delimiter
-
-EOF
-}
-
-# 嵌入所有模块
-embed_script "$SCRIPT_DIR/cmd/utils.sh" "cmd/utils.sh"
-embed_script "$SCRIPT_DIR/cmd/config.sh" "cmd/config.sh"
-embed_script "$SCRIPT_DIR/cmd/args.sh" "cmd/args.sh"
-embed_script "$SCRIPT_DIR/cmd/detect.sh" "cmd/detect.sh"
-embed_script "$SCRIPT_DIR/cmd/monitor.sh" "cmd/monitor.sh"
-embed_script "$SCRIPT_DIR/cmd/uninstall.sh" "cmd/uninstall.sh"
-embed_script "$SCRIPT_DIR/cmd/firewall.sh" "cmd/firewall.sh"
-embed_script "$SCRIPT_DIR/cmd/gfwlist.sh" "cmd/gfwlist.sh"
-embed_script "$SCRIPT_DIR/cmd/dnslog.sh" "cmd/dnslog.sh"
-embed_script "$SCRIPT_DIR/config/default.conf" "config/default.conf"
+# 嵌入所有模块（使用SOURCE_DIR）
+embed_script "$SOURCE_DIR/cmd/utils.sh" "cmd/utils.sh"
+embed_script "$SOURCE_DIR/cmd/config.sh" "cmd/config.sh"
+embed_script "$SOURCE_DIR/cmd/args.sh" "cmd/args.sh"
+embed_script "$SOURCE_DIR/cmd/detect.sh" "cmd/detect.sh"
+embed_script "$SOURCE_DIR/cmd/monitor.sh" "cmd/monitor.sh"
+embed_script "$SOURCE_DIR/cmd/uninstall.sh" "cmd/uninstall.sh"
+embed_script "$SOURCE_DIR/cmd/firewall.sh" "cmd/firewall.sh"
+embed_script "$SOURCE_DIR/cmd/gfwlist.sh" "cmd/gfwlist.sh"
+embed_script "$SOURCE_DIR/cmd/dnslog.sh" "cmd/dnslog.sh"
+embed_script "$SOURCE_DIR/config/default.conf" "config/default.conf"
 
 # 嵌入模板文件（如果存在）
-if [[ -d "$SCRIPT_DIR/templates" ]]; then
+if [[ -d "$SOURCE_DIR/templates" ]]; then
     echo "开始处理模板文件..."
-    echo "SCRIPT_DIR: $SCRIPT_DIR"
-    echo "模板目录: $SCRIPT_DIR/templates"
+    echo "源目录: $SOURCE_DIR"
+    echo "模板目录: $SOURCE_DIR/templates"
 
-    find "$SCRIPT_DIR/templates" -type f -name "*.template" | while read -r template_file; do
+    find "$SOURCE_DIR/templates" -type f -name "*.template" | while read -r template_file; do
         echo "找到模板文件: $template_file"
 
         # 确保 template_file 是完整路径
         if [[ -f "$template_file" ]]; then
             # 获取相对路径，确保正确移除前缀
-            relative_path="${template_file#$SCRIPT_DIR/}"
+            relative_path="${template_file#$SOURCE_DIR/}"
             echo "相对路径: $relative_path"
 
             # 使用完整路径作为源文件，相对路径作为目标路径
@@ -140,7 +150,7 @@ if [[ -d "$SCRIPT_DIR/templates" ]]; then
     done
     echo "模板文件处理完成"
 else
-    echo "模板目录不存在: $SCRIPT_DIR/templates"
+    echo "模板目录不存在: $SOURCE_DIR/templates"
 fi
 
 # 添加主脚本内容（去除source语句）
@@ -151,8 +161,8 @@ cat >> "$OUTPUT_FILE" << 'EOF'
 # ===== 主脚本 =====
 EOF
 
-# 去除source语句和shebang，添加主脚本内容
-grep -v '^source.*\.sh' "$SCRIPT_DIR/zerotier-gateway.sh" | tail -n +2 >> "$OUTPUT_FILE"
+# 去除source语句和shebang，添加主脚本内容（使用SOURCE_DIR）
+grep -v '^source.*\.sh' "$SOURCE_DIR/zerotier-gateway.sh" | tail -n +2 >> "$OUTPUT_FILE"
 
 # 添加bundle启动代码
 cat >> "$OUTPUT_FILE" << 'EOF'
