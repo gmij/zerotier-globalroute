@@ -21,23 +21,7 @@ ERROR_LOG_FILE="${SCRIPT_DIR}/logs/zt-gateway-error.log"
 log() {
     local level="$1"
     local message="$2"
-   # 清理接口名称（移除不可见字符）
-clean_interface_name() {
-    local interface="$1"
-    echo "$interface" | tr -d '\r\n \t'
-}
-
-# 获取接口 IP 地址
-get_interface_ip() {
-    local interface="$1"
-
-    if [ -z "$interface" ]; then
-        log "ERROR" "get_interface_ip: 接口名称不能为空"
-        return 1
-    fi
-
-    # 清理接口名称
-    interface=$(clean_interface_name "$interface")imestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local log_entry="[$timestamp] [$level] $message"
 
     # 确保日志目录存在
@@ -429,6 +413,8 @@ get_interface_ip() {
         return 1
     fi
 
+    # 清理接口名称
+    interface=$(clean_interface_name "$interface")
     log "DEBUG" "获取接口 $interface 的 IP 地址..."
 
     # 获取接口的第一个 IPv4 地址
@@ -510,3 +496,12 @@ show_network_interfaces() {
         echo "===================================="
     fi
 }
+
+# 清理接口名称（移除不可见字符）
+clean_interface_name() {
+    local interface="$1"
+    echo "$interface" | tr -d '\r\n \t'
+}
+
+# 测试函数是否完整
+echo "utils.sh 文件已正确加载"

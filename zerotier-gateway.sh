@@ -352,17 +352,6 @@ configure_system_services() {
     fi
 }
 
-# 测试网关连通性
-test_gateway_connectivity() {
-    if ping -c 1 -W 3 -I "$ZT_INTERFACE" 8.8.8.8 >/dev/null 2>&1; then
-        log "INFO" "网关连通性测试成功"
-        return 0
-    else
-        log "WARN" "网关连通性测试失败，但配置已完成。请检查网络设置。"
-        return 1
-    fi
-}
-
 # 显示完成信息
 show_completion_summary() {
     log "INFO" "ZeroTier 网关配置完成"
