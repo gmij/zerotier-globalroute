@@ -104,7 +104,8 @@ $raw_interfaces"
     fi
 
     # 确保返回的是干净的接口名（没有额外的空格或换行符）
-    echo -n "$result"
+    # 重要：仅输出纯接口名，不包含日志信息
+    echo "$result"
 }
 
 # 自动检测 WAN 接口

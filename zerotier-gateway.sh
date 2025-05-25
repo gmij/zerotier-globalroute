@@ -2,7 +2,7 @@
 #
 # ZeroTier 高级网关配置脚本 - CentOS 重构版
 # 功能：配置 CentOS 服务器作为 ZeroTier 网络的网关，支持双向流量及 HTTPS
-# 版本：3.1 (重构版)
+# 版本：3.3 (重构版)
 #
 
 set -e  # 在错误时退出
@@ -83,17 +83,15 @@ detect_network_environment() {
     fi    # 调试模式下检查 ZeroTier 状态
     if [ "$DEBUG_MODE" = "1" ]; then
         check_zerotier_status
-    fi
-
-    # 检测ZeroTier接口
+    fi    # 检测ZeroTier接口
     if [ -z "$ZT_INTERFACE" ]; then
         log "DEBUG" "自动检测 ZeroTier 接口..."
         # 获取接口名并去除可能的额外字符
         ZT_INTERFACE=$(detect_zt_interface)
 
-        # 确保变量没有不可见字符
+        # 确保变量没有不可见字符和额外日志
         ZT_INTERFACE=$(echo "$ZT_INTERFACE" | tr -d '\r\n \t')
-        log "DEBUG" "检测到的 ZeroTier 接口（清理后）: '$ZT_INTERFACE'"
+        log "DEBUG" "检测到的 ZeroTier 接口: '$ZT_INTERFACE'"
 
         if [ -z "$ZT_INTERFACE" ]; then
             # 在出错前再次检查 ZeroTier 状态
