@@ -95,7 +95,12 @@ embed_script() {
 cat > "\$SCRIPT_DIR/$dest_name" << '$delimiter'
 EOF
 
-    cat "$SCRIPT_DIR/$src_file" >> "$OUTPUT_FILE"
+    # 检查是否是绝对路径，如果是则直接使用，否则加上 SCRIPT_DIR
+    if [[ "$src_file" = /* ]]; then
+        cat "$src_file" >> "$OUTPUT_FILE"
+    else
+        cat "$SCRIPT_DIR/$src_file" >> "$OUTPUT_FILE"
+    fi
 
     cat >> "$OUTPUT_FILE" << EOF
 $delimiter
@@ -118,8 +123,13 @@ embed_script "config/default.conf" "config/default.conf"
 # 嵌入模板文件（如果存在）
 if [[ -d "$SCRIPT_DIR/templates" ]]; then
     find "$SCRIPT_DIR/templates" -type f -name "*.template" | while read -r template_file; do
-        relative_path="${template_file#$SCRIPT_DIR/}"
-        embed_script "$relative_path" "$relative_path"
+        # 确保 template_file 是完整路径
+        if [[ -f "$template_file" ]]; then
+            # 获取相对路径，确保正确移除前缀
+            relative_path="${template_file#$SCRIPT_DIR/}"
+            # 使用完整路径作为源文件，相对路径作为目标路径
+            embed_script "$template_file" "$relative_path"
+        fi
     done
 fi
 
