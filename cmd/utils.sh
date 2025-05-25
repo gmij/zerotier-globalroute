@@ -359,13 +359,13 @@ get_zt_network() {
     local interface="$1"
 
     if [ -z "$interface" ]; then
-        log "ERROR" "get_zt_network: 接口名称不能为空"
+        [ "$DEBUG_MODE" = "1" ] && { log "ERROR" "get_zt_network: 接口名称不能为空"; } >&2
         return 1
     fi
 
     # 清理接口名称
     interface=$(clean_interface_name "$interface")
-    log "DEBUG" "获取接口 '$interface' 的网络信息..."
+    [ "$DEBUG_MODE" = "1" ] && { log "DEBUG" "获取接口 '$interface' 的网络信息..."; } >&2
 
     # 获取接口的 IP 地址和网络
     local ip_info=$(ip addr show "$interface" 2>/dev/null | grep 'inet ' | head -1)
@@ -395,11 +395,11 @@ get_zt_network() {
             # 备用方法2：直接返回接口地址和前缀
             echo "$network/$prefix"
         else
-            log "WARN" "无法解析接口 $interface 的网络信息"
+            [ "$DEBUG_MODE" = "1" ] && { log "WARN" "无法解析接口 $interface 的网络信息"; } >&2
             echo ""
         fi
     else
-        log "WARN" "接口 $interface 没有配置 IP 地址"
+        [ "$DEBUG_MODE" = "1" ] && { log "WARN" "接口 $interface 没有配置 IP 地址"; } >&2
         echo ""
     fi
 }

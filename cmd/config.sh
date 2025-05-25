@@ -308,13 +308,13 @@ process_template() {
             # 移除值中的引号
             value=$(echo "$value" | sed 's/^"\(.*\)"$/\1/')
 
-            # 在模板中替换变量
-            sed -i "s/\\b${key}\\b/${value}/g" "$temp_file"
+            # 在模板中替换变量 - 使用管道分隔符避免特殊字符问题
+            sed -i "s|\\b${key}\\b|${value}|g" "$temp_file"
         done < "$CONFIG_FILE"
     else
         log "DEBUG" "配置文件不存在或未指定，使用环境变量进行基本替换"
-        # 使用环境变量进行基本替换
-        sed -i "s/{{SCRIPT_DIR}}/${SCRIPT_DIR//\//\\\/}/g" "$temp_file"
+        # 使用环境变量进行基本替换 - 使用不同分隔符避免路径斜杠问题
+        sed -i "s|{{SCRIPT_DIR}}|${SCRIPT_DIR}|g" "$temp_file"
         sed -i "s/{{ZT_INTERFACE}}/${ZT_INTERFACE}/g" "$temp_file"
         sed -i "s/{{WAN_INTERFACE}}/${WAN_INTERFACE}/g" "$temp_file"
         sed -i "s/{{ZT_NETWORK}}/${ZT_NETWORK}/g" "$temp_file"
@@ -331,12 +331,14 @@ process_template() {
         sed -i "s/SYN_BACKLOG/${SYN_BACKLOG:-4096}/g" "$temp_file"
         sed -i "s/RMEM_MAX/${RMEM_MAX:-16777216}/g" "$temp_file"
         sed -i "s/WMEM_MAX/${WMEM_MAX:-16777216}/g" "$temp_file"
-        sed -i "s/TCP_RMEM/${TCP_RMEM:-4096 87380 16777216}/g" "$temp_file"
-        sed -i "s/TCP_WMEM/${TCP_WMEM:-4096 65536 16777216}/g" "$temp_file"
+
+        # 特殊处理包含空格的变量 - 使用不同分隔符避免空格问题
+        sed -i "s|TCP_RMEM|${TCP_RMEM:-4096 87380 16777216}|g" "$temp_file"
+        sed -i "s|TCP_WMEM|${TCP_WMEM:-4096 65536 16777216}|g" "$temp_file"
         sed -i "s/TCP_CONGESTION_CONTROL/${TCP_CONGESTION_CONTROL:-bbr}/g" "$temp_file"
 
-        # 时间和版本信息替换
-        sed -i "s/GENERATION_TIME/$(date '+%Y-%m-%d %H:%M:%S')/g" "$temp_file"
+        # 时间和版本信息替换 - 使用管道分隔符避免特殊字符问题
+        sed -i "s|GENERATION_TIME|$(date '+%Y-%m-%d %H:%M:%S')|g" "$temp_file"
         sed -i "s/CONFIG_VERSION/${CONFIG_VERSION:-2.0.0}/g" "$temp_file"
     fi
 
@@ -366,9 +368,9 @@ handle_special_placeholders() {
     # 处理IPv6设置
     if [ "$IPV6_ENABLED" = "1" ]; then
         local ipv6_settings="net.ipv6.conf.all.forwarding=1\\nnet.ipv6.conf.default.forwarding=1"
-        sed -i "s/#IPV6_SETTINGS#/$ipv6_settings/" "$file"
+        sed -i "s|#IPV6_SETTINGS#|$ipv6_settings|" "$file"
     else
-        sed -i "s/#IPV6_SETTINGS#/# IPv6 转发已禁用/" "$file"
+        sed -i "s|#IPV6_SETTINGS#|# IPv6 转发已禁用|" "$file"
     fi
 
     # 处理高级网络设置
@@ -384,8 +386,8 @@ handle_special_placeholders() {
         if [ -z "$advanced_settings" ]; then
             advanced_settings="# 高级网络优化已启用但无具体设置"
         fi
-        sed -i "s/#ADVANCED_NETWORK_SETTINGS#/$advanced_settings/" "$file"
+        sed -i "s|#ADVANCED_NETWORK_SETTINGS#|$advanced_settings|" "$file"
     else
-        sed -i "s/#ADVANCED_NETWORK_SETTINGS#/# 高级网络优化已禁用/" "$file"
+        sed -i "s|#ADVANCED_NETWORK_SETTINGS#|# 高级网络优化已禁用|" "$file"
     fi
 }
