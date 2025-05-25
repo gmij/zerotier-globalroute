@@ -191,7 +191,7 @@ configure_gateway() {
 
     # 准备目录
     prepare_dirs
-    
+
     # 配置rc.local，修复执行权限问题
     setup_rc_local
 
