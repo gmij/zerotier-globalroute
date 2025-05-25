@@ -56,7 +56,7 @@ show_help() {
 detect_zt_interface() {
     # 方法1：检查网络接口名称
     local zt_interfaces=($(ip link show | grep -o 'zt[a-zA-Z0-9]*' | sort -u))
-    
+
     # 方法2：如果方法1未找到任何接口，检查 ZeroTier 程序状态
     if [ ${#zt_interfaces[@]} -eq 0 ] && command -v zerotier-cli >/dev/null; then
         local zt_info=$(zerotier-cli listnetworks 2>/dev/null)
@@ -65,7 +65,7 @@ detect_zt_interface() {
             zt_interfaces=($(echo "$zt_info" | awk 'NR>1 {print $8}' | grep -v '-' | sort -u))
         fi
     fi
-    
+
     # 处理检测结果
     if [ ${#zt_interfaces[@]} -eq 0 ]; then
         echo ""  # 没有找到
@@ -82,7 +82,7 @@ detect_zt_interface() {
 detect_wan_interface() {
     # 检查默认路由使用的接口
     local default_if=$(ip route | grep default | grep -v "linkdown\|tun\|zt\|docker\|veth" | head -1 | awk '{print $5}')
-    
+
     if [ -n "$default_if" ]; then
         echo "$default_if"
     else

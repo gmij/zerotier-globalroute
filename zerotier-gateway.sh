@@ -10,6 +10,15 @@ set -e  # 在错误时退出
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# 初始化全局变量
+DEBUG_MODE=0
+ZT_MTU=1400
+IPV6_ENABLED=0
+GFWLIST_MODE=0
+DNS_LOGGING=1
+UPDATE_MODE=0
+RESTART_MODE=0
+
 # 按依赖顺序加载功能模块
 source "$SCRIPT_DIR/cmd/utils.sh"      # 基础工具函数
 source "$SCRIPT_DIR/cmd/config.sh"    # 配置管理
@@ -31,14 +40,18 @@ main() {
     # 初始化系统
     log "INFO" "ZeroTier 网关配置开始 - 版本 3.1"
 
+    # 先解析命令行参数 (某些参数如 -h 不需要系统检查)
+    parse_arguments "$@"
+
+    # 如果是帮助、状态查看等不需要系统修改的操作，在参数解析时已经处理并退出
+    # 以下代码只有在需要进行实际配置时才会执行
+
     # 系统环境检查
+    log "INFO" "开始系统环境检查..."
     check_system_environment
 
     # 初始化配置系统
     init_config_system
-
-    # 解析命令行参数
-    parse_arguments "$@"
 
     # 验证参数
     validate_arguments

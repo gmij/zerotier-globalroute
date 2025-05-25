@@ -59,6 +59,20 @@ handle_error() {
     log "ERROR" "$error_msg"
     echo -e "${RED}错误: $error_msg${NC}" >&2
 
+    # 在调试模式下显示更多信息
+    if [ "$DEBUG_MODE" = "1" ]; then
+        echo -e "${YELLOW}调试信息:${NC}" >&2
+        echo -e "  脚本: ${BASH_SOURCE[1]}" >&2
+        echo -e "  行号: ${BASH_LINENO[0]}" >&2
+        echo -e "  函数: ${FUNCNAME[1]}" >&2
+
+        # 显示最近的日志条目
+        if [ -f "$LOG_FILE" ]; then
+            echo -e "${YELLOW}最近的日志条目:${NC}" >&2
+            tail -n 5 "$LOG_FILE" >&2
+        fi
+    fi
+
     # 如果指定，显示帮助信息
     if [ "$show_help" = "1" ]; then
         echo -e "${YELLOW}使用 --help 查看帮助信息${NC}" >&2
@@ -210,15 +224,32 @@ check_disk_space() {
 check_system_environment() {
     log "INFO" "开始系统环境检查..."
 
+    # 这些检查不能失败，否则脚本无法继续
     check_permissions
     check_system_requirements
     check_network_connectivity
     check_disk_space 50
 
-    # 检查关键服务
-    check_service_status "zerotier-one" 1
-    check_service_status "iptables" 0
-    check_service_status "dnsmasq" 0
+    # 检查关键服务（使用更宽松的错误处理）
+    log "DEBUG" "检查 ZeroTier 服务状态..."
+    if ! systemctl is-active --quiet zerotier-one; then
+        if systemctl is-enabled --quiet zerotier-one 2>/dev/null; then
+            log "WARN" "ZeroTier 服务已安装但未运行，尝试启动..."
+            if systemctl start zerotier-one 2>/dev/null; then
+                log "INFO" "ZeroTier 服务启动成功"
+            else
+                handle_error "无法启动 ZeroTier 服务，请检查安装状态"
+            fi
+        else
+            handle_error "ZeroTier 服务未安装，请先安装 ZeroTier 客户端"
+        fi
+    else
+        log "DEBUG" "ZeroTier 服务运行正常"
+    fi
+
+    # 检查可选服务（不会导致脚本退出）
+    check_service_status "iptables" 0 || true
+    check_service_status "dnsmasq" 0 || true
 
     log "SUCCESS" "系统环境检查完成"
 }
