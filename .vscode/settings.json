@@ -1,0 +1,68 @@
+{    "chat.promptFiles": true,
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "chat.instructionsFiles": {
+        "default": [".github/instructions"]
+    },
+    "chat.promptFilesLocations": [".github/prompts"],
+
+    // 场景特定的自定义指令
+    "github.copilot.chat.codeGeneration.instructions": [
+        {
+            "text": "遵循项目的 Shell 脚本编码规范，使用大写变量名和统一的日志函数"
+        },
+        {
+            "text": "配置文件通过软链接集中管理，使用 ln -sf 创建链接"
+        }
+    ],
+    "github.copilot.chat.testGeneration.instructions": [
+        {
+            "text": "为 Shell 脚本创建测试时，使用 bats 测试框架"
+        },
+        {
+            "text": "测试网络功能时，模拟 ZeroTier 接口和 iptables 规则"
+        }
+    ],
+    "github.copilot.chat.reviewSelection.instructions": [
+        {
+            "text": "检查 Shell 脚本的错误处理、权限管理和配置文件软链接创建"
+        },
+        {
+            "text": "验证防火墙规则和网络配置的安全性"
+        }
+    ],
+    "github.copilot.chat.commitMessageGeneration.instructions": [
+        {
+            "text": "使用中文提交信息，格式：[模块] 简短描述"
+        },
+        {
+            "text": "包含功能影响范围，如：防火墙、监控、配置管理等"
+        }
+    ],"files.associations": {
+        "*.template": "shellscript",
+        "*.prompt.md": "markdown"
+    },
+    "shellcheck.enable": true,
+    "shellcheck.executablePath": "shellcheck",
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "editor.rulers": [
+        80,
+        120
+    ],
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "[shellscript]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+    },
+    "[markdown]": {
+        "editor.tabSize": 2,
+        "editor.wordWrap": "on",
+        "editor.quickSuggestions": {
+            "comments": "on",
+            "strings": "on",
+            "other": "on"
+        }
+    }
+}
